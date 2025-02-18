@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Search</title>
+</head>
+<body onload="checkURLParams()">
+    <h1>Image Search</h1>
+    <input type="text" id="imageName" placeholder="Enter image name">
+    <button onclick="searchImage()">Search</button>
+    <br>
+    <canvas id="imageCanvas" width="500" height="500"></canvas>
+    <p id="errorMessage" style="color: red;"></p>
+    <p id="debugMessage" style="color: blue;"></p>
+
+    <script>
+        function getParameterByName(name, url) {
+            if (!url) url = window.location.href;
+            name = name.replace(/[\[\]]/g, '\\$&');
+            const regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)');
+            const results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, ' '));
+        }
+
+        function checkURLParams() {
+            const imageName = getParameterByName('image');
+            if (imageName) {
+                document.getElementById('imageName').value = imageName;
+                searchImage();
+            }
+        }
+
+        function loadImagesFromBuffer(buffer) {
+            const dataView = new DataView(buffer);
+
+            let offset = 0;
+            const fileCount = dataView.getInt32(offset, true);
+            offset += 4;
+
+            const imgs = [];
+
+            for (let i = 0; i < fileCount; i++) {
+                const jpegDataLength = dataView.getInt32(offset, true);
+                offset += 4;
+
+                const jpegData = new Uint8Array(buffer, offset, jpegDataLength);
+                offset += jpegDataLength;
+
+                const blob = new Blob([jpegData], { type: 'image/jpeg' });
+                const imageUrl = URL.createObjectURL(blob);
+
+                const image = new Image();
+                image.src = imageUrl;
+                imgs.push(image);
+            }
+
+            return imgs;
+        }
+
+        function searchImage() {
+            const imageName = document.getElementById('imageName').value;
+
+            fetch('Images/images.bin')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.arrayBuffer();
+                })
+                .then(buffer => {
+                    document.getElementById('debugMessage').textContent = 'Images loaded successfully!';
+                    const images = loadImagesFromBuffer(buffer);
+                    const image = images.find(img => img.src.includes(imageName + '.jpeg'));
+
+                    if (image) {
+                        const canvas = document.getElementById('imageCanvas');
+                        const context = canvas.getContext('2d');
+                        image.onload = function() {
+                            context.clearRect(0, 0, canvas.width, canvas.height);
+                            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                            document.getElementById('errorMessage').textContent = '';
+                        };
+                    } else {
+                        document.getElementById('errorMessage').textContent = 'Error: Image not found!';
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('errorMessage').textContent = 'Error: Unable to load images!';
+                    document.getElementById('debugMessage').textContent = `Debug: ${error.message}`;
+                    console.error('Error:', error);
+                });
+        }
+    </script>
+</body>
+</html>

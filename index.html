@@ -97,7 +97,7 @@
     <script>
         let images = [];
         let currentImageIndex = 0;
-        
+
         // Variables for image transformation
         let scale = 1;
         let offsetX = 0;
@@ -105,6 +105,7 @@
         let isDragging = false;
         let lastX = 0;
         let lastY = 0;
+        let lastDistance = 0;
 
         // Image adjustment values
         let imageAdjustments = {
@@ -116,11 +117,11 @@
         };
 
         // Convolution kernels for sharpening
-const sharpenKernel = [
-    -1, -1, -1,
-    -1,  9, -1,
-    -1, -1, -1
-];
+        const sharpenKernel = [
+            -1, -1, -1,
+            -1,  9, -1,
+            -1, -1, -1
+        ];
 
         async function fetchBinFile(filePath) {
             try {
@@ -167,94 +168,94 @@ const sharpenKernel = [
         }
 
         function applyConvolution(data, width, height, kernel, kernelSize) {
-    const output = new Uint8ClampedArray(data.length);
-    const half = Math.floor(kernelSize / 2);
+            const output = new Uint8ClampedArray(data.length);
+            const half = Math.floor(kernelSize / 2);
 
-    // Copy alpha channel directly
-    for (let i = 3; i < data.length; i += 4) {
-        output[i] = data[i];
-    }
+            // Copy alpha channel directly
+            for (let i = 3; i < data.length; i += 4) {
+                output[i] = data[i];
+            }
 
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const idx = (y * width + x) * 4;
-            let r = 0, g = 0, b = 0;
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    let r = 0, g = 0, b = 0;
 
-            // Apply convolution kernel
-            for (let ky = -half; ky <= half; ky++) {
-                for (let kx = -half; kx <= half; kx++) {
-                    const ix = x + kx;
-                    const iy = y + ky;
-                    
-                    if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
-                        const kernelIdx = (ky + half) * kernelSize + (kx + half);
-                        const dataIdx = (iy * width + ix) * 4;
-                        
-                        r += data[dataIdx] * kernel[kernelIdx];
-                        g += data[dataIdx + 1] * kernel[kernelIdx];
-                        b += data[dataIdx + 2] * kernel[kernelIdx];
+                    // Apply convolution kernel
+                    for (let ky = -half; ky <= half; ky++) {
+                        for (let kx = -half; kx <= half; kx++) {
+                            const ix = x + kx;
+                            const iy = y + ky;
+                            
+                            if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
+                                const kernelIdx = (ky + half) * kernelSize + (kx + half);
+                                const dataIdx = (iy * width + ix) * 4;
+                                
+                                r += data[dataIdx] * kernel[kernelIdx];
+                                g += data[dataIdx + 1] * kernel[kernelIdx];
+                                b += data[dataIdx + 2] * kernel[kernelIdx];
+                            }
+                        }
                     }
+
+                    output[idx] = Math.min(255, Math.max(0, r));
+                    output[idx + 1] = Math.min(255, Math.max(0, g));
+                    output[idx + 2] = Math.min(255, Math.max(0, b));
                 }
             }
 
-            output[idx] = Math.min(255, Math.max(0, r));
-            output[idx + 1] = Math.min(255, Math.max(0, g));
-            output[idx + 2] = Math.min(255, Math.max(0, b));
+            return output;
         }
-    }
-
-    return output;
-}
 
         function processImageData(imageData) {
-    const data = imageData.data;
-    const len = data.length;
-    
-    // Create a copy of the original data
-    let processed = new Uint8ClampedArray(data);
+            const data = imageData.data;
+            const len = data.length;
+            
+            // Create a copy of the original data
+            let processed = new Uint8ClampedArray(data);
 
-    // Apply sharpening first if needed
-    if (imageAdjustments.sharpness > 0) {
-        const intensity = imageAdjustments.sharpness / 100;
-        const customKernel = [
-            -intensity, -intensity, -intensity,
-            -intensity, 1 + (8 * intensity), -intensity,
-            -intensity, -intensity, -intensity
-        ];
-        processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
-    }
+            // Apply sharpening first if needed
+            if (imageAdjustments.sharpness > 0) {
+                const intensity = imageAdjustments.sharpness / 100;
+                const customKernel = [
+                    -intensity, -intensity, -intensity,
+                    -intensity, 1 + (8 * intensity), -intensity,
+                    -intensity, -intensity, -intensity
+                ];
+                processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
+            }
 
-    // Apply other adjustments
-    for (let i = 0; i < len; i += 4) {
-        let r = processed[i];
-        let g = processed[i + 1];
-        let b = processed[i + 2];
+            // Apply other adjustments
+            for (let i = 0; i < len; i += 4) {
+                let r = processed[i];
+                let g = processed[i + 1];
+                let b = processed[i + 2];
 
-        // Apply brightness
-        r += imageAdjustments.brightness;
-        g += imageAdjustments.brightness;
-        b += imageAdjustments.brightness;
+                // Apply brightness
+                r += imageAdjustments.brightness;
+                g += imageAdjustments.brightness;
+                b += imageAdjustments.brightness;
 
-        // Apply contrast
-        const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
-        r = factor * (r - 128) + 128;
-        g = factor * (g - 128) + 128;
-        b = factor * (b - 128) + 128;
+                // Apply contrast
+                const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
+                r = factor * (r - 128) + 128;
+                g = factor * (g - 128) + 128;
+                b = factor * (b - 128) + 128;
 
-        // Apply gamma
-        const gamma = imageAdjustments.gamma;
-        r = 255 * Math.pow(r / 255, 1 / gamma);
-        g = 255 * Math.pow(g / 255, 1 / gamma);
-        b = 255 * Math.pow(b / 255, 1 / gamma);
+                // Apply gamma
+                const gamma = imageAdjustments.gamma;
+                r = 255 * Math.pow(r / 255, 1 / gamma);
+                g = 255 * Math.pow(g / 255, 1 / gamma);
+                b = 255 * Math.pow(b / 255, 1 / gamma);
 
-        // Clamp values
-        processed[i] = Math.min(255, Math.max(0, r));
-        processed[i + 1] = Math.min(255, Math.max(0, g));
-        processed[i + 2] = Math.min(255, Math.max(0, b));
-    }
+                // Clamp values
+                processed[i] = Math.min(255, Math.max(0, r));
+                processed[i + 1] = Math.min(255, Math.max(0, g));
+                processed[i + 2] = Math.min(255, Math.max(0, b));
+            }
 
-    return processed;
-}
+            return processed;
+        }
 
         function displayImage(image) {
             const canvas = document.getElementById('imageCanvas');
@@ -369,6 +370,12 @@ const sharpenKernel = [
                     isDragging = true;
                     lastX = e.touches[0].clientX;
                     lastY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    isDragging = false;
+                    lastDistance = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
                 }
             });
 
@@ -382,6 +389,30 @@ const sharpenKernel = [
                     
                     lastX = e.touches[0].clientX;
                     lastY = e.touches[0].clientY;
+                    
+                    displayImage(images[currentImageIndex]);
+                } else if (e.touches.length === 2) {
+                    const currentDistance = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    const zoomFactor = currentDistance / lastDistance;
+                    const oldScale = scale;
+                    
+                    scale = Math.max(0.1, Math.min(5, scale * zoomFactor));
+                    
+                    // Adjust offset to zoom towards midpoint of touches
+                    const rect = canvas.getBoundingClientRect();
+                    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+                    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+                    
+                    const zoomPointX = midX - canvas.width/2 - offsetX;
+                    const zoomPointY = midY - canvas.height/2 - offsetY;
+                    
+                    offsetX += zoomPointX * (1 - scale/oldScale);
+                    offsetY += zoomPointY * (1 - scale/oldScale);
+                    
+                    lastDistance = currentDistance;
                     
                     displayImage(images[currentImageIndex]);
                 }
@@ -449,7 +480,7 @@ const sharpenKernel = [
         }
 
         async function init() {
-            console.log("Code Version 9");
+            console.log("Code Version 2");
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const binFileName = urlParams.get('file');
@@ -463,24 +494,4 @@ const sharpenKernel = [
                 
                 if (images.length > 0) {
                     const slider = document.getElementById('imageSlider');
-                    slider.max = images.length - 1;
-                    displayImage(images[0]);
-                    
-                    slider.addEventListener('input', (e) => {
-                        currentImageIndex = parseInt(e.target.value);
-                        displayImage(images[currentImageIndex]);
-                    });
-
-                    setupCanvasEvents();
-                    setupAdjustmentSliders();
-                }
-            } catch (error) {
-                showError('Error: The requested image file was not found or could not be loaded.');
-            }
-        }
-
-        // Initialize when window loads
-        window.onload = init;
-    </script>
-</body>
-</html>
+                    slider.max = images.length - 

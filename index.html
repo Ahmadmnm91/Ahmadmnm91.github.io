@@ -492,46 +492,48 @@
 
         // Setup adjustment sliders
         function setupAdjustmentSliders() {
-            const sliders = {
-                brightness: document.getElementById('brightnessSlider'),
-                contrast: document.getElementById('contrastSlider'),
-                gamma: document.getElementById('gammaSlider'),
-                sharpness: document.getElementById('sharpnessSlider'),
-                rotation: document.getElementById('rotationSlider')
-            };
+    const sliders = {
+        brightness: document.getElementById('brightnessSlider'),
+        contrast: document.getElementById('contrastSlider'),
+        gamma: document.getElementById('gammaSlider'),
+        sharpness: document.getElementById('sharpnessSlider'),
+        rotation: document.getElementById('rotationSlider')
+    };
 
-            const values = {
-                brightness: document.getElementById('brightnessValue'),
-                contrast: document.getElementById('contrastValue'),
-                gamma: document.getElementById('gammaValue'),
-                sharpness: document.getElementById('sharpnessValue'),
-                rotation: document.getElementById('rotationValue')
-            };
+    const values = {
+        brightness: document.getElementById('brightnessValue'),
+        contrast: document.getElementById('contrastValue'),
+        gamma: document.getElementById('gammaValue'),
+        sharpness: document.getElementById('sharpnessValue'),
+        rotation: document.getElementById('rotationValue')
+    };
 
-            for (const [key, slider] of Object.entries(sliders)) {
-                slider.addEventListener('input', (e) => {
-                    let value = parseFloat(e.target.value);
-                    
-                    // Special handling for gamma
-                    if (key === 'gamma') {
-                        value = value / 10;
-                    }
-                    
-                    imageAdjustments[key] = value;
-                    
-                    // Update display value
-                    values[key].textContent = key === 'rotation' ? 
-                        `${value}°` : 
-                        key === 'gamma' ? 
-                            value.toFixed(1) : 
-                            value;
-                    
-                    if (images.length > 0) {
-                        displayImage(images[currentImageIndex]);
-                    }
-                });
+    Object.entries(sliders).forEach(([key, slider]) => {
+        slider.addEventListener('input', (e) => {
+            let value = parseFloat(e.target.value);
+            
+            // Special handling for gamma
+            if (key === 'gamma') {
+                value = value / 10;
             }
-        }
+            
+            imageAdjustments[key] = value;
+            
+            // Update display value
+            if (key === 'rotation') {
+                values[key].textContent = `${value}°`;
+            } else if (key === 'gamma') {
+                values[key].textContent = value.toFixed(1);
+            } else {
+                values[key].textContent = value;
+            }
+            
+            if (images.length > 0) {
+                displayImage(images[currentImageIndex]);
+            }
+        });
+    });
+}
 
         // Setup swipe events
         function setupSwipeEvents() {

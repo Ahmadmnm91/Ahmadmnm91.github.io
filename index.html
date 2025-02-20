@@ -7,7 +7,7 @@
     <style>
         .container {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             align-items: center;
             gap: 20px;
         }
@@ -18,8 +18,7 @@
             order: 2;
         }
         input[type="range"].horizontal {
-            width: 500px;
-            height: 50px;
+            width: 100%;
         }
         .error-message {
             color: red;
@@ -62,35 +61,36 @@
 <body>
     <div class="container">
         <canvas id="imageCanvas" width="500" height="500"></canvas>
-        <div class="slider-container">
-            <input type="range" id="imageSlider" class="horizontal" min="0" value="0" step="1">
-        </div>
-    </div>
-    <div class="controls">
-        <div class="control-group">
-            <span class="control-label">Brightness:</span>
-            <input type="range" id="brightnessSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-            <span class="control-value" id="brightnessValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Contrast:</span>
-            <input type="range" id="contrastSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-            <span class="control-value" id="contrastValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Gamma:</span>
-            <input type="range" id="gammaSlider" class="control-slider" min="1" max="22" value="10" step="1">
-            <span class="control-value" id="gammaValue">1.0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Sharpness:</span>
-            <input type="range" id="sharpnessSlider" class="control-slider" min="0" max="100" value="0" step="1">
-            <span class="control-value" id="sharpnessValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Rotation:</span>
-            <input type="range" id="rotationSlider" class="control-slider" min="0" max="360" value="0" step="1">
-            <span class="control-value" id="rotationValue">0°</span>
+        <div class="controls">
+            <div class="control-group">
+                <span class="control-label">Image:</span>
+                <input type="range" id="imageSlider" class="control-slider horizontal" min="0" value="0" step="1">
+            </div>
+            <div class="control-group">
+                <span class="control-label">Brightness:</span>
+                <input type="range" id="brightnessSlider" class="control-slider" min="-100" max="100" value="0" step="1">
+                <span class="control-value" id="brightnessValue">0</span>
+            </div>
+            <div class="control-group">
+                <span class="control-label">Contrast:</span>
+                <input type="range" id="contrastSlider" class="control-slider" min="-100" max="100" value="0" step="1">
+                <span class="control-value" id="contrastValue">0</span>
+            </div>
+            <div class="control-group">
+                <span class="control-label">Gamma:</span>
+                <input type="range" id="gammaSlider" class="control-slider" min="1" max="22" value="10" step="1">
+                <span class="control-value" id="gammaValue">1.0</span>
+            </div>
+            <div class="control-group">
+                <span class="control-label">Sharpness:</span>
+                <input type="range" id="sharpnessSlider" class="control-slider" min="0" max="100" value="0" step="1">
+                <span class="control-value" id="sharpnessValue">0</span>
+            </div>
+            <div class="control-group">
+                <span class="control-label">Rotation:</span>
+                <input type="range" id="rotationSlider" class="control-slider" min="0" max="360" value="0" step="1">
+                <span class="control-value" id="rotationValue">0°</span>
+            </div>
         </div>
     </div>
     <div id="errorMessage" class="error-message"></div>
@@ -449,7 +449,7 @@ const sharpenKernel = [
         }
 
         async function init() {
-            console.log("Code Version 6");
+            console.log("Code Version 9");
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const binFileName = urlParams.get('file');

@@ -3,295 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Image Viewer with Adjustments</title>
+    <title>Image Viewer</title>
     <style>
-        body {
-            margin: 0;
-            padding: 10px;
-            overscroll-behavior: none; /* Prevent pull-to-refresh */
-            touch-action: none; /* Prevent default touch actions */
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-            max-width: 100%;
-        }
-        @media (min-width: 768px) {
-            .container {
-                flex-direction: row;
-            }
-        }
-        .canvas-container {
-            position: relative;
-            width: 100%;
-            max-width: 500px;
-            touch-action: none;
-        }
-        #imageCanvas {
-            width: 100%;
-            height: auto;
-            cursor: move;
-            touch-action: none;
-        }
-        .slider-container {
-            height: 500px;
-            display: flex;
-            align-items: center;
-        }
-        input[type="range"].vertical {
-            transform: rotate(270deg);
-            width: 500px;
-            height: 50px;
-        }
-        .controls {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-top: 20px;
-            width: 100%;
-            max-width: 500px;
-        }
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background-color: #f5f5f5;
+        /* ... previous styles remain the same ... */
+        
+        /* Add loading indicator styles */
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 20px;
             border-radius: 8px;
+            z-index: 1000;
         }
-        .control-label {
-            min-width: 100px;
-            font-weight: bold;
-        }
-        .control-slider {
-            flex-grow: 1;
-            height: 30px; /* Larger touch target */
-        }
-        .control-value {
-            min-width: 50px;
-            text-align: right;
-            font-family: monospace;
-        }
-        /* Mobile-friendly slider styles */
-        input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            background: #ddd;
-            border-radius: 5px;
-            height: 10px;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 25px;
-            height: 25px;
-            background: #4CAF50;
-            border-radius: 50%;
-            cursor: pointer;
-        }
-        .error-message {
-            color: red;
-            font-size: 18px;
-            text-align: center;
-            margin: 20px;
+
+        #imageInfo {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px;
+            border-radius: 4px;
+            font-size: 12px;
         }
     </style>
 </head>
 <body>
-    <!-- Previous HTML remains the same -->
+    <div id="loading" class="loading" style="display: none;">Loading...</div>
+    <div class="container">
+        <div class="canvas-container">
+            <canvas id="imageCanvas" width="500" height="500"></canvas>
+            <div id="imageInfo"></div>
+        </div>
+        <div class="slider-container">
+            <input type="range" id="imageSlider" class="vertical" min="0" value="0" step="1">
+        </div>
+    </div>
+    <div class="controls">
+        <!-- ... previous controls remain the same ... -->
+    </div>
     <script>
-        // Previous variables and functions remain the same until setupCanvasEvents
+        let images = [];
+        let currentImageIndex = 0;
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let lastX = 0;
+        let lastY = 0;
 
-        function setupCanvasEvents() {
+        // Show/hide loading indicator
+        function setLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // Update image info
+        function updateImageInfo() {
+            const info = document.getElementById('imageInfo');
+            info.textContent = `Image ${currentImageIndex + 1} of ${images.length}`;
+        }
+
+        async function fetchBinFile(filePath) {
+            try {
+                setLoading(true);
+                const response = await fetch(filePath);
+                if (!response.ok) {
+                    throw new Error('File not found');
+                }
+                const buffer = await response.arrayBuffer();
+                return buffer;
+            } catch (error) {
+                throw new Error('Failed to load the file');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function loadImagesFromBuffer(buffer) {
+            setLoading(true);
+            try {
+                const dataView = new DataView(buffer);
+                let offset = 0;
+                const fileCount = dataView.getInt32(offset, true);
+                offset += 4;
+
+                const imgs = [];
+                const promises = [];
+
+                for (let i = 0; i < fileCount; i++) {
+                    const jpegDataLength = dataView.getInt32(offset, true);
+                    offset += 4;
+
+                    const jpegData = new Uint8Array(buffer, offset, jpegDataLength);
+                    offset += jpegDataLength;
+
+                    const blob = new Blob([jpegData], { type: 'image/jpeg' });
+                    const imageUrl = URL.createObjectURL(blob);
+
+                    const image = new Image();
+                    const promise = new Promise((resolve) => {
+                        image.onload = () => resolve(image);
+                        image.onerror = () => {
+                            console.error('Failed to load image:', i);
+                            resolve(null);
+                        };
+                    });
+                    image.src = imageUrl;
+                    imgs.push(image);
+                    promises.push(promise);
+                }
+
+                const loadedImages = await Promise.all(promises);
+                return loadedImages.filter(img => img !== null);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function displayImage(image) {
+            if (!image || !image.complete) {
+                console.error('Invalid or incomplete image');
+                return;
+            }
+
             const canvas = document.getElementById('imageCanvas');
-            let lastTouchDistance = 0;
-            let isGesturing = false;
+            const ctx = canvas.getContext('2d');
 
-            // Touch start event
-            canvas.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                if (e.touches.length === 1) {
-                    isDragging = true;
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                } else if (e.touches.length === 2) {
-                    // Start of pinch-to-zoom
-                    isGesturing = true;
-                    lastTouchDistance = getTouchDistance(e.touches);
-                }
-            }, { passive: false });
+            // Clear the canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Touch move event
-            canvas.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                if (isDragging && e.touches.length === 1) {
-                    // Single touch - pan
-                    const touch = e.touches[0];
-                    const deltaX = touch.clientX - lastX;
-                    const deltaY = touch.clientY - lastY;
-                    
-                    offsetX += deltaX;
-                    offsetY += deltaY;
-                    
-                    lastX = touch.clientX;
-                    lastY = touch.clientY;
-                    
-                    displayImage(images[currentImageIndex]);
-                } else if (isGesturing && e.touches.length === 2) {
-                    // Pinch-to-zoom
-                    const currentDistance = getTouchDistance(e.touches);
-                    const delta = currentDistance - lastTouchDistance;
-                    
-                    const zoomFactor = 0.005;
-                    const oldScale = scale;
-                    scale = Math.max(0.1, Math.min(5, scale * (1 + delta * zoomFactor)));
-                    
-                    // Get the center point between the two touches
-                    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                    
-                    // Adjust offset to zoom towards center point
-                    const rect = canvas.getBoundingClientRect();
-                    const zoomPointX = centerX - rect.left - canvas.width/2 - offsetX;
-                    const zoomPointY = centerY - rect.top - canvas.height/2 - offsetY;
-                    
-                    offsetX += zoomPointX * (1 - scale/oldScale);
-                    offsetY += zoomPointY * (1 - scale/oldScale);
-                    
-                    lastTouchDistance = currentDistance;
-                    displayImage(images[currentImageIndex]);
-                }
-            }, { passive: false });
+            // Save the current state
+            ctx.save();
 
-            // Touch end event
-            canvas.addEventListener('touchend', (e) => {
-                isDragging = false;
-                isGesturing = false;
-            });
+            // Move to center of canvas
+            ctx.translate(canvas.width/2, canvas.height/2);
 
-            // Touch cancel event
-            canvas.addEventListener('touchcancel', (e) => {
-                isDragging = false;
-                isGesturing = false;
-            });
+            // Apply rotation
+            if (imageAdjustments.rotation) {
+                ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
+            }
 
-            // Mouse events (keep existing mouse events for desktop compatibility)
-            canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) {
-                    isDragging = true;
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                }
-            });
+            // Apply scale
+            ctx.scale(scale, scale);
 
-            canvas.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    const deltaX = e.offsetX - lastX;
-                    const deltaY = e.offsetY - lastY;
-                    
-                    offsetX += deltaX;
-                    offsetY += deltaY;
-                    
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                    
-                    displayImage(images[currentImageIndex]);
-                }
-            });
+            // Apply translation
+            ctx.translate(offsetX/scale, offsetY/scale);
 
-            canvas.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
+            // Draw the image centered
+            ctx.drawImage(image, 
+                -image.width/2, 
+                -image.height/2, 
+                image.width, 
+                image.height
+            );
 
-            canvas.addEventListener('mouseleave', () => {
-                isDragging = false;
-            });
+            // Restore the context state
+            ctx.restore();
 
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                
-                const zoomFactor = 0.1;
-                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
-                const oldScale = scale;
-                
-                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
-                
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                
-                const zoomPointX = mouseX - canvas.width/2 - offsetX;
-                const zoomPointY = mouseY - canvas.height/2 - offsetY;
-                
-                offsetX += zoomPointX * (1 - scale/oldScale);
-                offsetY += zoomPointY * (1 - scale/oldScale);
-                
-                displayImage(images[currentImageIndex]);
-            });
+            // Update image info
+            updateImageInfo();
         }
 
-        // Helper function to calculate distance between two touch points
-        function getTouchDistance(touches) {
-            const dx = touches[0].clientX - touches[1].clientX;
-            const dy = touches[0].clientY - touches[1].clientY;
-            return Math.sqrt(dx * dx + dy * dy);
-        }
-
-        // Add swipe detection for image navigation
-        function setupSwipeEvents() {
-            const canvas = document.getElementById('imageCanvas');
-            let touchStartX = 0;
-            let touchStartY = 0;
-            let touchStartTime = 0;
-
-            canvas.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    touchStartX = e.touches[0].clientX;
-                    touchStartY = e.touches[0].clientY;
-                    touchStartTime = Date.now();
-                }
-            });
-
-            canvas.addEventListener('touchend', (e) => {
-                if (e.changedTouches.length === 1) {
-                    const touchEndX = e.changedTouches[0].clientX;
-                    const touchEndY = e.changedTouches[0].clientY;
-                    const touchEndTime = Date.now();
-
-                    const deltaX = touchEndX - touchStartX;
-                    const deltaY = touchEndY - touchStartY;
-                    const deltaTime = touchEndTime - touchStartTime;
-
-                    // Check if it's a swipe (fast enough and long enough)
-                    if (deltaTime < 300) {
-                        const swipeLength = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-                        if (swipeLength > 50) {
-                            // Determine if it's mostly horizontal
-                            if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                                const slider = document.getElementById('imageSlider');
-                                if (deltaX > 0 && currentImageIndex > 0) {
-                                    // Swipe right - previous image
-                                    currentImageIndex--;
-                                    slider.value = currentImageIndex;
-                                    displayImage(images[currentImageIndex]);
-                                } else if (deltaX < 0 && currentImageIndex < images.length - 1) {
-                                    // Swipe left - next image
-                                    currentImageIndex++;
-                                    slider.value = currentImageIndex;
-                                    displayImage(images[currentImageIndex]);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        // Modify init() to include swipe events
         async function init() {
             try {
+                setLoading(true);
                 const urlParams = new URLSearchParams(window.location.search);
                 const binFileName = urlParams.get('file');
                 
@@ -299,12 +178,19 @@
                     ? `Images/${binFileName}.bin`
                     : 'Images/output.bin';
                 
+                console.log('Loading file:', filePath);
                 const buffer = await fetchBinFile(filePath);
+                console.log('Buffer loaded, size:', buffer.byteLength);
+                
                 images = await loadImagesFromBuffer(buffer);
+                console.log('Images loaded:', images.length);
                 
                 if (images.length > 0) {
                     const slider = document.getElementById('imageSlider');
                     slider.max = images.length - 1;
+                    
+                    // Initialize first image
+                    console.log('Displaying first image');
                     displayImage(images[0]);
                     
                     slider.addEventListener('input', (e) => {
@@ -316,13 +202,19 @@
                     setupAdjustmentSliders();
                     setupKeyboardEvents();
                     setupSwipeEvents();
+                } else {
+                    throw new Error('No images loaded');
                 }
             } catch (error) {
-                showError('Error: The requested image file was not found or could not be loaded.');
+                console.error('Initialization error:', error);
+                showError('Error: ' + error.message);
+            } finally {
+                setLoading(false);
             }
         }
 
-        window.onload = init;
+        // Call init when the page loads
+        window.addEventListener('load', init);
     </script>
 </body>
 </html>

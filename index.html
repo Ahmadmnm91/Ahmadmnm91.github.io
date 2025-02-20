@@ -324,8 +324,8 @@ const sharpenKernel = [
                     const deltaX = e.offsetX - lastX;
                     const deltaY = e.offsetY - lastY;
                     
-                    offsetX += deltaX;
-                    offsetY += deltaY;
+                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
+                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
                     
                     lastX = e.offsetX;
                     lastY = e.offsetY;
@@ -379,8 +379,8 @@ const sharpenKernel = [
                     const deltaX = e.touches[0].clientX - lastX;
                     const deltaY = e.touches[0].clientY - lastY;
                     
-                    offsetX += deltaX;
-                    offsetY += deltaY;
+                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
+                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
                     
                     lastX = e.touches[0].clientX;
                     lastY = e.touches[0].clientY;
@@ -451,6 +451,7 @@ const sharpenKernel = [
         }
 
         async function init() {
+            console.log("Code Version 4");
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const binFileName = urlParams.get('file');

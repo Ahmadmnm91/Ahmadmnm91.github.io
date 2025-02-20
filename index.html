@@ -396,7 +396,7 @@
                 const zoomFactor = 0.1;
                 const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
                 const oldScale = scale;
-                scale = Math.max(0.1, Math.min(5, scale * (1 + delta));
+                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
 
                 const rect = canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;

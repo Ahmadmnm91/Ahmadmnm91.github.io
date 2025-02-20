@@ -97,18 +97,16 @@
     <script>
         let images = [];
         let currentImageIndex = 0;
-
-        // Variables for image transformation
         let scale = 1;
         let offsetX = 0;
         let offsetY = 0;
         let isDragging = false;
         let lastX = 0;
         let lastY = 0;
-        let lastDistance = 0;
+        let prevDistance = 0;
+        let prevScale = 1;
 
-        // Image adjustment values
-        let imageAdjustments = {
+        const imageAdjustments = {
             brightness: 0,
             contrast: 0,
             gamma: 1.0,
@@ -116,23 +114,20 @@
             rotation: 0
         };
 
-        // Convolution kernels for sharpening
+        // Convolution kernels
         const sharpenKernel = [
             -1, -1, -1,
-            -1,  9, -1,
+            -1, 9, -1,
             -1, -1, -1
         ];
 
         async function fetchBinFile(filePath) {
             try {
                 const response = await fetch(filePath);
-                if (!response.ok) {
-                    throw new Error('File not found');
-                }
-                const buffer = await response.arrayBuffer();
-                return buffer;
+                if (!response.ok) throw new Error('File not found');
+                return await response.arrayBuffer();
             } catch (error) {
-                throw new Error('Failed to load the file');
+                throw new Error('Failed to load file');
             }
         }
 
@@ -148,18 +143,16 @@
             for (let i = 0; i < fileCount; i++) {
                 const jpegDataLength = dataView.getInt32(offset, true);
                 offset += 4;
-
                 const jpegData = new Uint8Array(buffer, offset, jpegDataLength);
                 offset += jpegDataLength;
 
                 const blob = new Blob([jpegData], { type: 'image/jpeg' });
                 const imageUrl = URL.createObjectURL(blob);
-
                 const image = new Image();
                 image.src = imageUrl;
                 imgs.push(image);
                 
-                promises.push(new Promise((resolve) => {
+                promises.push(new Promise(resolve => {
                     image.onload = resolve;
                 }));
             }
@@ -171,7 +164,6 @@
             const output = new Uint8ClampedArray(data.length);
             const half = Math.floor(kernelSize / 2);
 
-            // Copy alpha channel directly
             for (let i = 3; i < data.length; i += 4) {
                 output[i] = data[i];
             }
@@ -181,7 +173,6 @@
                     const idx = (y * width + x) * 4;
                     let r = 0, g = 0, b = 0;
 
-                    // Apply convolution kernel
                     for (let ky = -half; ky <= half; ky++) {
                         for (let kx = -half; kx <= half; kx++) {
                             const ix = x + kx;
@@ -209,12 +200,8 @@
 
         function processImageData(imageData) {
             const data = imageData.data;
-            const len = data.length;
-            
-            // Create a copy of the original data
             let processed = new Uint8ClampedArray(data);
 
-            // Apply sharpening first if needed
             if (imageAdjustments.sharpness > 0) {
                 const intensity = imageAdjustments.sharpness / 100;
                 const customKernel = [
@@ -225,30 +212,28 @@
                 processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
             }
 
-            // Apply other adjustments
-            for (let i = 0; i < len; i += 4) {
+            for (let i = 0; i < data.length; i += 4) {
                 let r = processed[i];
                 let g = processed[i + 1];
                 let b = processed[i + 2];
 
-                // Apply brightness
+                // Brightness
                 r += imageAdjustments.brightness;
                 g += imageAdjustments.brightness;
                 b += imageAdjustments.brightness;
 
-                // Apply contrast
+                // Contrast
                 const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
                 r = factor * (r - 128) + 128;
                 g = factor * (g - 128) + 128;
                 b = factor * (b - 128) + 128;
 
-                // Apply gamma
+                // Gamma
                 const gamma = imageAdjustments.gamma;
                 r = 255 * Math.pow(r / 255, 1 / gamma);
                 g = 255 * Math.pow(g / 255, 1 / gamma);
                 b = 255 * Math.pow(b / 255, 1 / gamma);
 
-                // Clamp values
                 processed[i] = Math.min(255, Math.max(0, r));
                 processed[i + 1] = Math.min(255, Math.max(0, g));
                 processed[i + 2] = Math.min(255, Math.max(0, b));
@@ -260,58 +245,34 @@
         function displayImage(image) {
             const canvas = document.getElementById('imageCanvas');
             const ctx = canvas.getContext('2d');
-
-            // Create offscreen canvas for processing
             const offscreen = document.createElement('canvas');
             offscreen.width = image.width;
             offscreen.height = image.height;
             const offCtx = offscreen.getContext('2d');
 
-            // Clear both canvases
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
-
-            // Draw image to offscreen canvas
             offCtx.drawImage(image, 0, 0);
 
-            // Get image data and process it
             const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
             const processedData = processImageData(imageData);
-            
-            // Put processed data back to offscreen canvas
             offCtx.putImageData(new ImageData(processedData, offscreen.width, offscreen.height), 0, 0);
 
-            // Draw to main canvas with transformations
             ctx.save();
-            
-            // Move to center of canvas
             ctx.translate(canvas.width/2, canvas.height/2);
-            
-            // Apply rotation
             ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
-            
-            // Apply scale
             ctx.scale(scale, scale);
-            
-            // Apply translation
             ctx.translate(offsetX/scale, offsetY/scale);
-
-            // Draw the processed image centered
-            ctx.drawImage(offscreen, 
-                -image.width/2, 
-                -image.height/2, 
-                image.width, 
-                image.height
-            );
-
+            ctx.drawImage(offscreen, -image.width/2, -image.height/2, image.width, image.height);
             ctx.restore();
         }
 
         function setupCanvasEvents() {
             const canvas = document.getElementById('imageCanvas');
 
+            // Mouse events
             canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) { // Left mouse button
+                if (e.button === 0) {
                     isDragging = true;
                     lastX = e.offsetX;
                     lastY = e.offsetY;
@@ -322,108 +283,101 @@
                 if (isDragging) {
                     const deltaX = e.offsetX - lastX;
                     const deltaY = e.offsetY - lastY;
-                    
                     offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
                     offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    
                     lastX = e.offsetX;
                     lastY = e.offsetY;
-                    
                     displayImage(images[currentImageIndex]);
                 }
             });
 
-            canvas.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
+            canvas.addEventListener('mouseup', () => isDragging = false);
+            canvas.addEventListener('mouseleave', () => isDragging = false);
 
-            canvas.addEventListener('mouseleave', () => {
-                isDragging = false;
-            });
-
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                
-                const zoomFactor = 0.1;
-                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
-                const oldScale = scale;
-                
-                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
-                
-                // Adjust offset to zoom towards mouse position
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                
-                const zoomPointX = mouseX - canvas.width/2 - offsetX;
-                const zoomPointY = mouseY - canvas.height/2 - offsetY;
-                
-                offsetX += zoomPointX * (1 - scale/oldScale);
-                offsetY += zoomPointY * (1 - scale/oldScale);
-                
-                displayImage(images[currentImageIndex]);
-            });
-
-            // Touch Events for mobile/touchscreen
+            // Touch events
             canvas.addEventListener('touchstart', (e) => {
                 if (e.touches.length === 1) {
                     isDragging = true;
                     lastX = e.touches[0].clientX;
                     lastY = e.touches[0].clientY;
                 } else if (e.touches.length === 2) {
-                    isDragging = false;
-                    lastDistance = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    prevDistance = Math.hypot(
+                        touch2.clientX - touch1.clientX,
+                        touch2.clientY - touch1.clientY
                     );
+                    prevScale = scale;
+                    e.preventDefault();
                 }
             });
 
             canvas.addEventListener('touchmove', (e) => {
-                if (isDragging && e.touches.length === 1) {
+                if (e.touches.length === 1 && isDragging) {
                     const deltaX = e.touches[0].clientX - lastX;
                     const deltaY = e.touches[0].clientY - lastY;
-                    
                     offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
                     offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    
                     lastX = e.touches[0].clientX;
                     lastY = e.touches[0].clientY;
-                    
                     displayImage(images[currentImageIndex]);
                 } else if (e.touches.length === 2) {
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
                     const currentDistance = Math.hypot(
-                        e.touches[0].clientX - e.touches[1].clientX,
-                        e.touches[0].clientY - e.touches[1].clientY
+                        touch2.clientX - touch1.clientX,
+                        touch2.clientY - touch1.clientY
                     );
-                    const zoomFactor = currentDistance / lastDistance;
-                    const oldScale = scale;
-                    
-                    scale = Math.max(0.1, Math.min(5, scale * zoomFactor));
-                    
-                    // Adjust offset to zoom towards midpoint of touches
-                    const rect = canvas.getBoundingClientRect();
-                    const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-                    const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-                    
-                    const zoomPointX = midX - canvas.width/2 - offsetX;
-                    const zoomPointY = midY - canvas.height/2 - offsetY;
-                    
-                    offsetX += zoomPointX * (1 - scale/oldScale);
-                    offsetY += zoomPointY * (1 - scale/oldScale);
-                    
-                    lastDistance = currentDistance;
-                    
-                    displayImage(images[currentImageIndex]);
+
+                    if (prevDistance > 0) {
+                        const scaleFactor = currentDistance / prevDistance;
+                        const newScale = Math.max(0.1, Math.min(5, prevScale * scaleFactor));
+
+                        const rect = canvas.getBoundingClientRect();
+                        const midX = (touch1.clientX + touch2.clientX)/2 - rect.left;
+                        const midY = (touch1.clientY + touch2.clientY)/2 - rect.top;
+
+                        const zoomPointX = midX - canvas.width/2 - offsetX;
+                        const zoomPointY = midY - canvas.height/2 - offsetY;
+                        const deltaScale = newScale / prevScale;
+                        offsetX += zoomPointX * (1 - deltaScale);
+                        offsetY += zoomPointY * (1 - deltaScale);
+
+                        scale = newScale;
+                        prevDistance = currentDistance;
+                        prevScale = newScale;
+                        displayImage(images[currentImageIndex]);
+                    }
+                    e.preventDefault();
                 }
             });
 
             canvas.addEventListener('touchend', () => {
                 isDragging = false;
+                prevDistance = 0;
             });
 
             canvas.addEventListener('touchcancel', () => {
                 isDragging = false;
+                prevDistance = 0;
+            });
+
+            // Wheel zoom
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = 0.1;
+                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
+                const oldScale = scale;
+                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
+
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                const zoomPointX = mouseX - canvas.width/2 - offsetX;
+                const zoomPointY = mouseY - canvas.height/2 - offsetY;
+                offsetX += zoomPointX * (1 - scale/oldScale);
+                offsetY += zoomPointY * (1 - scale/oldScale);
+                displayImage(images[currentImageIndex]);
             });
         }
 
@@ -447,51 +401,51 @@
             for (const [key, slider] of Object.entries(sliders)) {
                 slider.addEventListener('input', (e) => {
                     let value = parseFloat(e.target.value);
-                    
-                    // Special handling for gamma
-                    if (key === 'gamma') {
-                        value = value / 10; // Convert 10-22 to 1.0-2.2
-                    }
-                    
+                    if (key === 'gamma') value = value / 10;
                     imageAdjustments[key] = value;
-                    
-                    // Update display value
                     values[key].textContent = key === 'rotation' ? 
                         `${value}°` : 
                         key === 'gamma' ? 
                             value.toFixed(1) : 
                             value;
-                    
-                    if (images.length > 0) {
-                        displayImage(images[currentImageIndex]);
-                    }
+                    if (images.length > 0) displayImage(images[currentImageIndex]);
                 });
-
-                // Ensure touch compatibility
-                slider.addEventListener('touchstart', (e) => {
-                    e.stopPropagation();
-                });
+                slider.addEventListener('touchstart', (e) => e.stopPropagation());
             }
         }
 
         function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
+            document.getElementById('errorMessage').textContent = message;
         }
 
         async function init() {
-            console.log("Code Version 2");
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const binFileName = urlParams.get('file');
-                
-                const filePath = binFileName 
-                    ? `Images/${binFileName}.bin`
-                    : 'Images/output.bin';
-                
+                const filePath = binFileName ? `Images/${binFileName}.bin` : 'Images/output.bin';
+
                 const buffer = await fetchBinFile(filePath);
                 images = await loadImagesFromBuffer(buffer);
-                
+
                 if (images.length > 0) {
                     const slider = document.getElementById('imageSlider');
-                    slider.max = images.length - 
+                    slider.max = images.length - 1;
+                    displayImage(images[0]);
+
+                    slider.addEventListener('input', (e) => {
+                        currentImageIndex = parseInt(e.target.value);
+                        displayImage(images[currentImageIndex]);
+                    });
+
+                    setupCanvasEvents();
+                    setupAdjustmentSliders();
+                }
+            } catch (error) {
+                showError('Error: The requested image file was not found or could not be loaded.');
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

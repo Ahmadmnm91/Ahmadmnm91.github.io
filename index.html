@@ -7,9 +7,9 @@
     <style>
         .container {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 20px;
-            flex-wrap: wrap;
         }
         .slider-container {
             height: 500px;
@@ -435,6 +435,11 @@ const sharpenKernel = [
                     if (images.length > 0) {
                         displayImage(images[currentImageIndex]);
                     }
+                });
+
+                // Ensure touch compatibility
+                slider.addEventListener('touchstart', (e) => {
+                    e.stopPropagation();
                 });
             }
         }

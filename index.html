@@ -33,9 +33,17 @@
         let images = [];
 
         async function fetchBinFile(filePath) {
-            const response = await fetch(filePath);
-            const buffer = await response.arrayBuffer();
-            return buffer;
+            try {
+                const response = await fetch(filePath);
+                if (!response.ok) {
+                    throw new Error('File not found');
+                }
+                const buffer = await response.arrayBuffer();
+                return buffer;
+            } catch (error) {
+                alert(error.message);
+                throw error;
+            }
         }
 
         function loadImagesFromBuffer(buffer) {
@@ -78,18 +86,29 @@
         }
 
         async function init() {
-            const buffer = await fetchBinFile('Images/output.bin');
-            images = await loadImagesFromBuffer(buffer);
-            
-            if (images.length > 0) {
-                const slider = document.getElementById('imageSlider');
-                slider.max = images.length - 1;
-                displayImage(images[0]);
+            const urlParams = new URLSearchParams(window.location.search);
+            const binFileName = urlParams.get('file');
+            if (!binFileName) {
+                alert('No file specified in the URL');
+                return;
+            }
+
+            try {
+                const buffer = await fetchBinFile(`Images/${binFileName}.bin`);
+                images = await loadImagesFromBuffer(buffer);
                 
-                slider.addEventListener('input', (e) => {
-                    const index = parseInt(e.target.value);
-                    displayImage(images[index]);
-                });
+                if (images.length > 0) {
+                    const slider = document.getElementById('imageSlider');
+                    slider.max = images.length - 1;
+                    displayImage(images[0]);
+                    
+                    slider.addEventListener('input', (e) => {
+                        const index = parseInt(e.target.value);
+                        displayImage(images[index]);
+                    });
+                }
+            } catch (error) {
+                console.error(error);
             }
         }
 

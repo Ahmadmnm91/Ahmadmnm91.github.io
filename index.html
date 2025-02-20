@@ -409,36 +409,62 @@ const sharpenKernel = [
             const errorElement = document.getElementById('errorMessage');
             errorElement.textContent = message;
         }
-
-        async function init() {
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const binFileName = urlParams.get('file');
-                
-                const filePath = binFileName 
-                    ? `Images/${binFileName}.bin`
-                    : 'Images/output.bin';
-                
-                const buffer = await fetchBinFile(filePath);
-                images = await loadImagesFromBuffer(buffer);
-                
-                if (images.length > 0) {
-                    const slider = document.getElementById('imageSlider');
-                    slider.max = images.length - 1;
-                    displayImage(images[0]);
-                    
-                    slider.addEventListener('input', (e) => {
-                        currentImageIndex = parseInt(e.target.value);
-                        displayImage(images[currentImageIndex]);
-                    });
-
-                    setupCanvasEvents();
-                    setupAdjustmentSliders();
+function setupKeyboardEvents() {
+    document.addEventListener('keydown', (e) => {
+        const slider = document.getElementById('imageSlider');
+        
+        switch(e.key) {
+            case 'ArrowUp':
+                // Prevent default to avoid page scrolling
+                e.preventDefault();
+                if (currentImageIndex < images.length - 1) {
+                    currentImageIndex++;
+                    slider.value = currentImageIndex;
+                    displayImage(images[currentImageIndex]);
                 }
-            } catch (error) {
-                showError('Error: The requested image file was not found or could not be loaded.');
-            }
+                break;
+                
+            case 'ArrowDown':
+                e.preventDefault();
+                if (currentImageIndex > 0) {
+                    currentImageIndex--;
+                    slider.value = currentImageIndex;
+                    displayImage(images[currentImageIndex]);
+                }
+                break;
         }
+    });
+}
+async function init() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const binFileName = urlParams.get('file');
+        
+        const filePath = binFileName 
+            ? `Images/${binFileName}.bin`
+            : 'Images/output.bin';
+        
+        const buffer = await fetchBinFile(filePath);
+        images = await loadImagesFromBuffer(buffer);
+        
+        if (images.length > 0) {
+            const slider = document.getElementById('imageSlider');
+            slider.max = images.length - 1;
+            displayImage(images[0]);
+            
+            slider.addEventListener('input', (e) => {
+                currentImageIndex = parseInt(e.target.value);
+                displayImage(images[currentImageIndex]);
+            });
+
+            setupCanvasEvents();
+            setupAdjustmentSliders();
+            setupKeyboardEvents(); // Add this line
+        }
+    } catch (error) {
+        showError('Error: The requested image file was not found or could not be loaded.');
+    }
+}
 
         // Initialize when window loads
         window.onload = init;

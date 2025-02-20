@@ -5,9 +5,96 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Image Viewer</title>
     <style>
-        /* ... previous styles remain the same ... */
-        
-        /* Add loading indicator styles */
+        body {
+            margin: 0;
+            padding: 10px;
+            overscroll-behavior: none;
+            touch-action: none;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            max-width: 100%;
+        }
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+            }
+        }
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            touch-action: none;
+            background: #f0f0f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #imageCanvas {
+            width: 100%;
+            height: auto;
+            cursor: move;
+            touch-action: none;
+            display: block;
+        }
+        .slider-container {
+            height: 500px;
+            display: flex;
+            align-items: center;
+        }
+        input[type="range"].vertical {
+            transform: rotate(270deg);
+            width: 500px;
+            height: 50px;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+            width: 100%;
+            max-width: 500px;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+        }
+        .control-label {
+            min-width: 100px;
+            font-weight: bold;
+        }
+        .control-slider {
+            flex-grow: 1;
+            height: 30px;
+        }
+        .control-value {
+            min-width: 50px;
+            text-align: right;
+            font-family: monospace;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #ddd;
+            border-radius: 5px;
+            height: 10px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            background: #4CAF50;
+            border-radius: 50%;
+            cursor: pointer;
+        }
         .loading {
             position: fixed;
             top: 50%;
@@ -19,16 +106,24 @@
             border-radius: 8px;
             z-index: 1000;
         }
-
         #imageInfo {
             position: absolute;
             bottom: 10px;
             left: 10px;
             background: rgba(0, 0, 0, 0.5);
             color: white;
-            padding: 5px;
+            padding: 5px 10px;
             border-radius: 4px;
             font-size: 12px;
+        }
+        .error-message {
+            color: #ff0000;
+            text-align: center;
+            margin: 20px;
+            padding: 10px;
+            background: #ffe6e6;
+            border-radius: 4px;
+            border: 1px solid #ff9999;
         }
     </style>
 </head>
@@ -44,9 +139,36 @@
         </div>
     </div>
     <div class="controls">
-        <!-- ... previous controls remain the same ... -->
+        <div class="control-group">
+            <span class="control-label">Brightness:</span>
+            <input type="range" id="brightnessSlider" class="control-slider" min="-100" max="100" value="0" step="1">
+            <span class="control-value" id="brightnessValue">0</span>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Contrast:</span>
+            <input type="range" id="contrastSlider" class="control-slider" min="-100" max="100" value="0" step="1">
+            <span class="control-value" id="contrastValue">0</span>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Gamma:</span>
+            <input type="range" id="gammaSlider" class="control-slider" min="10" max="22" value="10" step="1">
+            <span class="control-value" id="gammaValue">1.0</span>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Sharpness:</span>
+            <input type="range" id="sharpnessSlider" class="control-slider" min="0" max="100" value="0" step="1">
+            <span class="control-value" id="sharpnessValue">0</span>
+        </div>
+        <div class="control-group">
+            <span class="control-label">Rotation:</span>
+            <input type="range" id="rotationSlider" class="control-slider" min="0" max="360" value="0" step="1">
+            <span class="control-value" id="rotationValue">0°</span>
+        </div>
     </div>
+    <div id="errorMessage" class="error-message"></div>
+
     <script>
+        // Global variables
         let images = [];
         let currentImageIndex = 0;
         let scale = 1;
@@ -55,6 +177,15 @@
         let isDragging = false;
         let lastX = 0;
         let lastY = 0;
+
+        // Image adjustment values
+        let imageAdjustments = {
+            brightness: 0,
+            contrast: 0,
+            gamma: 1.0,
+            sharpness: 0,
+            rotation: 0
+        };
 
         // Show/hide loading indicator
         function setLoading(show) {
@@ -67,6 +198,14 @@
             info.textContent = `Image ${currentImageIndex + 1} of ${images.length}`;
         }
 
+        // Show error message
+        function showError(message) {
+            const errorElement = document.getElementById('errorMessage');
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        // Fetch binary file
         async function fetchBinFile(filePath) {
             try {
                 setLoading(true);
@@ -74,15 +213,15 @@
                 if (!response.ok) {
                     throw new Error('File not found');
                 }
-                const buffer = await response.arrayBuffer();
-                return buffer;
+                return await response.arrayBuffer();
             } catch (error) {
-                throw new Error('Failed to load the file');
+                throw new Error(`Failed to load file: ${error.message}`);
             } finally {
                 setLoading(false);
             }
         }
 
+        // Load images from buffer
         async function loadImagesFromBuffer(buffer) {
             setLoading(true);
             try {
@@ -124,6 +263,41 @@
             }
         }
 
+        // Apply image adjustments
+        function applyImageAdjustments(ctx, imageData) {
+            const data = imageData.data;
+            const len = data.length;
+
+            for (let i = 0; i < len; i += 4) {
+                let r = data[i];
+                let g = data[i + 1];
+                let b = data[i + 2];
+
+                // Brightness
+                r += imageAdjustments.brightness;
+                g += imageAdjustments.brightness;
+                b += imageAdjustments.brightness;
+
+                // Contrast
+                const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
+                r = factor * (r - 128) + 128;
+                g = factor * (g - 128) + 128;
+                b = factor * (b - 128) + 128;
+
+                // Gamma
+                r = 255 * Math.pow(r / 255, 1 / imageAdjustments.gamma);
+                g = 255 * Math.pow(g / 255, 1 / imageAdjustments.gamma);
+                b = 255 * Math.pow(b / 255, 1 / imageAdjustments.gamma);
+
+                data[i] = Math.min(255, Math.max(0, r));
+                data[i + 1] = Math.min(255, Math.max(0, g));
+                data[i + 2] = Math.min(255, Math.max(0, b));
+            }
+
+            return imageData;
+        }
+
+        // Display image
         function displayImage(image) {
             if (!image || !image.complete) {
                 console.error('Invalid or incomplete image');
@@ -133,41 +307,272 @@
             const canvas = document.getElementById('imageCanvas');
             const ctx = canvas.getContext('2d');
 
-            // Clear the canvas
+            // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Save the current state
+            // Create offscreen canvas for processing
+            const offscreen = document.createElement('canvas');
+            offscreen.width = image.width;
+            offscreen.height = image.height;
+            const offCtx = offscreen.getContext('2d');
+
+            // Draw image to offscreen canvas
+            offCtx.drawImage(image, 0, 0);
+
+            // Apply adjustments
+            const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
+            const processedData = applyImageAdjustments(offCtx, imageData);
+            offCtx.putImageData(processedData, 0, 0);
+
+            // Draw to main canvas with transformations
             ctx.save();
-
-            // Move to center of canvas
             ctx.translate(canvas.width/2, canvas.height/2);
-
-            // Apply rotation
-            if (imageAdjustments.rotation) {
-                ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
-            }
-
-            // Apply scale
+            ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
             ctx.scale(scale, scale);
-
-            // Apply translation
             ctx.translate(offsetX/scale, offsetY/scale);
-
-            // Draw the image centered
-            ctx.drawImage(image, 
-                -image.width/2, 
-                -image.height/2, 
-                image.width, 
-                image.height
-            );
-
-            // Restore the context state
+            ctx.drawImage(offscreen, -image.width/2, -image.height/2);
             ctx.restore();
 
-            // Update image info
             updateImageInfo();
         }
 
+        // Setup canvas events
+        function setupCanvasEvents() {
+            const canvas = document.getElementById('imageCanvas');
+            let lastTouchDistance = 0;
+            let isGesturing = false;
+
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    lastX = e.touches[0].clientX;
+                    lastY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    isGesturing = true;
+                    lastTouchDistance = getTouchDistance(e.touches);
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (isDragging && e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - lastX;
+                    const deltaY = touch.clientY - lastY;
+                    
+                    offsetX += deltaX;
+                    offsetY += deltaY;
+                    
+                    lastX = touch.clientX;
+                    lastY = touch.clientY;
+                    
+                    displayImage(images[currentImageIndex]);
+                } else if (isGesturing && e.touches.length === 2) {
+                    const currentDistance = getTouchDistance(e.touches);
+                    const delta = currentDistance - lastTouchDistance;
+                    
+                    const zoomFactor = 0.005;
+                    const oldScale = scale;
+                    scale = Math.max(0.1, Math.min(5, scale * (1 + delta * zoomFactor)));
+                    
+                    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                    
+                    const rect = canvas.getBoundingClientRect();
+                    const zoomPointX = centerX - rect.left - canvas.width/2 - offsetX;
+                    const zoomPointY = centerY - rect.top - canvas.height/2 - offsetY;
+                    
+                    offsetX += zoomPointX * (1 - scale/oldScale);
+                    offsetY += zoomPointY * (1 - scale/oldScale);
+                    
+                    lastTouchDistance = currentDistance;
+                    displayImage(images[currentImageIndex]);
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', () => {
+                isDragging = false;
+                isGesturing = false;
+            });
+
+            canvas.addEventListener('touchcancel', () => {
+                isDragging = false;
+                isGesturing = false;
+            });
+
+            // Mouse events
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button === 0) {
+                    isDragging = true;
+                    lastX = e.offsetX;
+                    lastY = e.offsetY;
+                }
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.offsetX - lastX;
+                    const deltaY = e.offsetY - lastY;
+                    
+                    offsetX += deltaX;
+                    offsetY += deltaY;
+                    
+                    lastX = e.offsetX;
+                    lastY = e.offsetY;
+                    
+                    displayImage(images[currentImageIndex]);
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                
+                const zoomFactor = 0.1;
+                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
+                const oldScale = scale;
+                
+                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
+                
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                const zoomPointX = mouseX - canvas.width/2 - offsetX;
+                const zoomPointY = mouseY - canvas.height/2 - offsetY;
+                
+                offsetX += zoomPointX * (1 - scale/oldScale);
+                offsetY += zoomPointY * (1 - scale/oldScale);
+                
+                displayImage(images[currentImageIndex]);
+            });
+        }
+
+        // Helper function for touch distance
+        function getTouchDistance(touches) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Setup keyboard events
+        function setupKeyboardEvents() {
+            document.addEventListener('keydown', (e) => {
+                const slider = document.getElementById('imageSlider');
+                
+                switch(e.key) {
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        if (currentImageIndex < images.length - 1) {
+                            currentImageIndex++;
+                            slider.value = currentImageIndex;
+                            displayImage(images[currentImageIndex]);
+                        }
+                        break;
+                        
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        if (currentImageIndex > 0) {
+                            currentImageIndex--;
+                            slider.value = currentImageIndex;
+                            displayImage(images[currentImageIndex]);
+                        }
+                        break;
+                }
+            });
+        }
+
+        // Setup adjustment sliders
+        function setupAdjustmentSliders() {
+            const sliders = {
+                brightness: document.getElementById('brightnessSlider'),
+                contrast: document.getElementById('contrastSlider'),
+                gamma: document.getElementById('gammaSlider'),
+                sharpness: document.getElementById('sharpnessSlider'),
+                rotation: document.getElementById('rotationSlider')
+            };
+
+            const values = {
+                brightness: document.getElementById('brightnessValue'),
+                contrast: document.getElementById('contrastValue'),
+                gamma: document.getElementById('gammaValue'),
+                sharpness: document.getElementById('sharpnessValue'),
+                rotation: document.getElementById('rotationValue')
+            };
+
+            for (const [key, slider] of Object.entries(sliders)) {
+                slider.addEventListener('input', (e) => {
+                    let value = parseFloat(e.target.value);
+                    
+                    // Special handling for gamma
+                    if (key === 'gamma') {
+                        value = value / 10;
+                    }
+                    
+                    imageAdjustments[key] = value;
+                    
+                    // Update display value
+                    values[key].textContent = key === 'rotation' ? 
+                        `${value}°` : 
+                        key === 'gamma' ? 
+                            value.toFixed(1) : 
+                            value;
+                    
+                    if (images.length > 0) {
+                        displayImage(images[currentImageIndex]);
+                    }
+                });
+            }
+        }
+
+        // Setup swipe events
+        function setupSwipeEvents() {
+            const canvas = document.getElementById('imageCanvas');
+            let touchStartX = 0;
+            let touchStartTime = 0;
+
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartTime = Date.now();
+                }
+            });
+
+            canvas.addEventListener('touchend', (e) => {
+                if (e.changedTouches.length === 1) {
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const touchEndTime = Date.now();
+                    const touchDuration = touchEndTime - touchStartTime;
+                    const touchDistance = touchEndX - touchStartX;
+
+                    // Check if it's a swipe (fast and long enough)
+                    if (touchDuration < 300 && Math.abs(touchDistance) > 50) {
+                        const slider = document.getElementById('imageSlider');
+                        if (touchDistance > 0 && currentImageIndex > 0) {
+                            // Swipe right - previous image
+                            currentImageIndex--;
+                            slider.value = currentImageIndex;
+                            displayImage(images[currentImageIndex]);
+                        } else if (touchDistance < 0 && currentImageIndex < images.length - 1) {
+                            // Swipe left - next image
+                            currentImageIndex++;
+                            slider.value = currentImageIndex;
+                            displayImage(images[currentImageIndex]);
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initialize
         async function init() {
             try {
                 setLoading(true);
@@ -213,7 +618,7 @@
             }
         }
 
-        // Call init when the page loads
+        // Start initialization when page loads
         window.addEventListener('load', init);
     </script>
 </body>

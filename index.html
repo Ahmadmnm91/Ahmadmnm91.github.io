@@ -3,10 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Display Image from BIN File</title>
+    <title>Display Images with Vertical Slider</title>
+    <style>
+        #container {
+            display: flex;
+            align-items: center;
+        }
+        #imageCanvas {
+            border: 1px solid black;
+        }
+        #sliderContainer {
+            height: 500px;
+            display: flex;
+            align-items: center;
+            margin-left: 20px;
+        }
+        #slider {
+            writing-mode: bt-lr; /* vertical */
+            transform: rotate(-90deg); /* Rotate to vertical */
+            transform-origin: left bottom;
+        }
+    </style>
 </head>
 <body>
-    <canvas id="imageCanvas" width="500" height="500"></canvas>
+    <div id="container">
+        <canvas id="imageCanvas" width="500" height="500"></canvas>
+        <div id="sliderContainer">
+            <input type="range" id="slider" min="0" step="1" value="0">
+        </div>
+    </div>
     <script>
         async function fetchBinFile(filePath) {
             const response = await fetch(filePath);
@@ -45,6 +70,7 @@
             const canvas = document.getElementById('imageCanvas');
             const ctx = canvas.getContext('2d');
             image.onload = function() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear previous image
                 ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
             };
         }
@@ -52,6 +78,14 @@
         async function init() {
             const buffer = await fetchBinFile('Images/output.bin');
             const images = loadImagesFromBuffer(buffer);
+            const slider = document.getElementById('slider');
+            slider.max = images.length - 1;
+
+            slider.oninput = function() {
+                const index = parseInt(this.value);
+                displayImage(images[index]);
+            };
+
             if (images.length > 0) {
                 displayImage(images[0]);
             }

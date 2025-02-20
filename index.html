@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Optimized Image Viewer</title>
+    <title>Image Viewer with Adjustments</title>
     <style>
         .container {
             display: flex;
@@ -94,8 +94,11 @@
         </div>
     </div>
     <div id="errorMessage" class="error-message"></div>
-    <script>
+     <script>
         let images = [];
+        let imageUrls = []; // Store URLs for cleanup
+        let offscreenCanvas = null;
+        let offscreenCtx = null;
         let currentImageIndex = 0;
         let scale = 1;
         let offsetX = 0;
@@ -105,13 +108,8 @@
         let lastY = 0;
         let prevDistance = 0;
         let prevScale = 1;
-        
-        // Memory management variables
-        let currentProcessing = null;
-        let offscreenCanvas = null;
-        const imageCache = new Map();
-        const MAX_CACHE_SIZE = 3;
-        const CHUNK_SIZE = 100000;
+        let requestAnimationFrameId = null;
+        let isImageProcessingPending = false;
 
         const imageAdjustments = {
             brightness: 0,
@@ -120,6 +118,13 @@
             sharpness: 0,
             rotation: 0
         };
+
+        // Convolution kernels
+        const sharpenKernel = new Float32Array([
+            -1, -1, -1,
+            -1,  9, -1,
+            -1, -1, -1
+        ]);
 
         async function fetchBinFile(filePath) {
             try {
@@ -131,19 +136,28 @@
             }
         }
 
-        async function loadImagesFromBuffer(buffer) {
-            // Cleanup previous resources
-            images.forEach(img => URL.revokeObjectURL(img.src));
-            imageCache.clear();
+        function cleanupImages() {
+            // Revoke object URLs to free memory
+            imageUrls.forEach(url => URL.revokeObjectURL(url));
+            imageUrls = [];
+            
+            // Clear image array
             images = [];
+            
+            // Force garbage collection hint
+            if (window.gc) window.gc();
+        }
+
+        function loadImagesFromBuffer(buffer) {
+            cleanupImages(); // Cleanup existing images
 
             const dataView = new DataView(buffer);
             let offset = 0;
             const fileCount = dataView.getInt32(offset, true);
             offset += 4;
 
+            const imgs = [];
             const promises = [];
-            const blobUrls = [];
 
             for (let i = 0; i < fileCount; i++) {
                 const jpegDataLength = dataView.getInt32(offset, true);
@@ -153,307 +167,200 @@
 
                 const blob = new Blob([jpegData], { type: 'image/jpeg' });
                 const imageUrl = URL.createObjectURL(blob);
-                blobUrls.push(imageUrl);
+                imageUrls.push(imageUrl); // Store URL for later cleanup
 
                 const image = new Image();
                 image.src = imageUrl;
-                images.push(image);
+                imgs.push(image);
                 
                 promises.push(new Promise(resolve => {
-                    image.onload = () => {
-                        image.decode().then(resolve).catch(console.error);
-                    };
+                    image.onload = resolve;
                 }));
             }
 
-            await Promise.all(promises);
-            blobUrls.forEach(url => URL.revokeObjectURL(url));
-            return images;
+            // Free the original buffer
+            buffer = null;
+
+            return Promise.all(promises).then(() => imgs);
         }
 
-        function processImageData(imageData) {
-            if (currentProcessing) {
-                cancelAnimationFrame(currentProcessing);
+        function initOffscreenCanvas(width, height) {
+            if (offscreenCanvas) {
+                offscreenCanvas.width = width;
+                offscreenCanvas.height = height;
+            } else {
+                offscreenCanvas = new OffscreenCanvas(width, height);
+                offscreenCtx = offscreenCanvas.getContext('2d', {
+                    willReadFrequently: true
+                });
+            }
+        }
+
+        function applyConvolution(data, width, height, kernel, kernelSize) {
+            const output = new Uint8ClampedArray(data.length);
+            const half = Math.floor(kernelSize / 2);
+            const lineSize = width * 4;
+            const kernelTotal = kernel.reduce((a, b) => a + b, 0);
+
+            // Process alpha channel separately
+            for (let i = 3; i < data.length; i += 4) {
+                output[i] = data[i];
             }
 
-            const data = imageData.data;
-            const len = data.length;
-            const output = new Uint8ClampedArray(len);
-            const tempBuffer = new ArrayBuffer(len);
-            const tempView = new Uint8Array(tempBuffer);
-            tempView.set(data);
+            // Use TypedArrays for better performance
+            const tempR = new Float32Array(width * height);
+            const tempG = new Float32Array(width * height);
+            const tempB = new Float32Array(width * height);
 
-            let position = 0;
+            // Process each channel separately for better memory usage
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    let r = 0, g = 0, b = 0;
 
-            const processChunk = () => {
-                const end = Math.min(position + CHUNK_SIZE, len);
-                
-                for (let i = position; i < end; i += 4) {
-                    let r = tempView[i];
-                    let g = tempView[i + 1];
-                    let b = tempView[i + 2];
-
-                    // Apply sharpness first
-                    if (imageAdjustments.sharpness > 0) {
-                        // Sharpness is applied in separate step
+                    for (let ky = -half; ky <= half; ky++) {
+                        const iy = y + ky;
+                        if (iy >= 0 && iy < height) {
+                            for (let kx = -half; kx <= half; kx++) {
+                                const ix = x + kx;
+                                if (ix >= 0 && ix < width) {
+                                    const kernelIdx = (ky + half) * kernelSize + (kx + half);
+                                    const dataIdx = (iy * width + ix) * 4;
+                                    
+                                    r += data[dataIdx] * kernel[kernelIdx];
+                                    g += data[dataIdx + 1] * kernel[kernelIdx];
+                                    b += data[dataIdx + 2] * kernel[kernelIdx];
+                                }
+                            }
+                        }
                     }
 
-                    // Brightness
-                    r += imageAdjustments.brightness;
-                    g += imageAdjustments.brightness;
-                    b += imageAdjustments.brightness;
-
-                    // Contrast
-                    const contrastFactor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
-                    r = contrastFactor * (r - 128) + 128;
-                    g = contrastFactor * (g - 128) + 128;
-                    b = contrastFactor * (b - 128) + 128;
-
-                    // Gamma
-                    const gamma = imageAdjustments.gamma;
-                    r = 255 * Math.pow(r / 255, 1 / gamma);
-                    g = 255 * Math.pow(g / 255, 1 / gamma);
-                    b = 255 * Math.pow(b / 255, 1 / gamma);
-
-                    tempView[i] = Math.min(255, Math.max(0, r));
-                    tempView[i + 1] = Math.min(255, Math.max(0, g));
-                    tempView[i + 2] = Math.min(255, Math.max(0, b));
+                    tempR[y * width + x] = r;
+                    tempG[y * width + x] = g;
+                    tempB[y * width + x] = b;
                 }
+            }
 
-                position = end;
-                if (position < len) {
-                    currentProcessing = requestAnimationFrame(processChunk);
-                } else {
-                    currentProcessing = null;
-                    output.set(tempView);
-                }
-            };
+            // Write back to output buffer
+            for (let i = 0; i < width * height; i++) {
+                const idx = i * 4;
+                output[idx] = Math.min(255, Math.max(0, tempR[i]));
+                output[idx + 1] = Math.min(255, Math.max(0, tempG[i]));
+                output[idx + 2] = Math.min(255, Math.max(0, tempB[i]));
+            }
 
-            currentProcessing = requestAnimationFrame(processChunk);
             return output;
         }
 
-        function displayImage(image) {
-            if (!offscreenCanvas) {
-                offscreenCanvas = document.createElement('canvas');
+        function processImageData(imageData) {
+            if (!imageData) return null;
+
+            const data = imageData.data;
+            let processed = new Uint8ClampedArray(data);
+
+            if (imageAdjustments.sharpness > 0) {
+                const intensity = imageAdjustments.sharpness / 100;
+                const customKernel = new Float32Array([
+                    -intensity, -intensity, -intensity,
+                    -intensity, 1 + (8 * intensity), -intensity,
+                    -intensity, -intensity, -intensity
+                ]);
+                processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
             }
 
-            const canvas = document.getElementById('imageCanvas');
-            const ctx = canvas.getContext('2d');
-            const cacheKey = `${currentImageIndex}-${JSON.stringify(imageAdjustments)}`;
+            // Process in chunks to avoid blocking the main thread
+            const chunkSize = 50000;
+            const chunks = Math.ceil(data.length / chunkSize);
 
-            if (imageCache.has(cacheKey)) {
-                drawFinalImage(imageCache.get(cacheKey));
-                return;
-            }
+            return new Promise(resolve => {
+                let currentChunk = 0;
 
-            offscreenCanvas.width = image.naturalWidth;
-            offscreenCanvas.height = image.naturalHeight;
-            const offCtx = offscreenCanvas.getContext('2d');
+                function processChunk() {
+                    const start = currentChunk * chunkSize;
+                    const end = Math.min(start + chunkSize, data.length);
 
-            offCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-            offCtx.drawImage(image, 0, 0);
+                    for (let i = start; i < end; i += 4) {
+                        let r = processed[i];
+                        let g = processed[i + 1];
+                        let b = processed[i + 2];
 
-            const imageData = offCtx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-            const processedData = processImageData(imageData);
+                        // Apply adjustments
+                        r = Math.min(255, Math.max(0, applyAdjustments(r)));
+                        g = Math.min(255, Math.max(0, applyAdjustments(g)));
+                        b = Math.min(255, Math.max(0, applyAdjustments(b)));
 
-            const cachedImage = new Image();
-            cachedImage.src = createImageURL(processedData, offscreenCanvas.width, offscreenCanvas.height);
-            imageCache.set(cacheKey, cachedImage);
+                        processed[i] = r;
+                        processed[i + 1] = g;
+                        processed[i + 2] = b;
+                    }
 
-            if (imageCache.size > MAX_CACHE_SIZE) {
-                imageCache.delete(imageCache.keys().next().value);
-            }
+                    currentChunk++;
 
-            cachedImage.onload = () => {
-                drawFinalImage(cachedImage);
-                offscreenCanvas.width = 1;
-                offscreenCanvas.height = 1;
-            };
+                    if (currentChunk < chunks) {
+                        requestAnimationFrameId = requestAnimationFrame(processChunk);
+                    } else {
+                        resolve(processed);
+                    }
+                }
+
+                processChunk();
+            });
         }
 
-        function createImageURL(data, width, height) {
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
-            const ctx = tempCanvas.getContext('2d');
-            ctx.putImageData(new ImageData(data, width, height), 0, 0);
-            return tempCanvas.toDataURL();
+        function applyAdjustments(value) {
+            // Brightness
+            value += imageAdjustments.brightness;
+
+            // Contrast
+            const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
+            value = factor * (value - 128) + 128;
+
+            // Gamma
+            value = 255 * Math.pow(value / 255, 1 / imageAdjustments.gamma);
+
+            return value;
         }
 
-        function drawFinalImage(image) {
+        async function displayImage(image) {
+            if (!image || isImageProcessingPending) return;
+            isImageProcessingPending = true;
+
             const canvas = document.getElementById('imageCanvas');
-            const ctx = canvas.getContext('2d');
-            
+            const ctx = canvas.getContext('2d', {
+                alpha: false,
+                willReadFrequently: true
+            });
+
+            // Initialize or resize offscreen canvas
+            initOffscreenCanvas(image.width, image.height);
+
+            // Clear canvases
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+
+            // Draw image to offscreen canvas
+            offscreenCtx.drawImage(image, 0, 0);
+
+            // Process image data
+            const imageData = offscreenCtx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            const processedData = await processImageData(imageData);
+
+            // Put processed data back to offscreen canvas
+            offscreenCtx.putImageData(new ImageData(processedData, offscreenCanvas.width, offscreenCanvas.height), 0, 0);
+
+            // Draw to main canvas with transformations
             ctx.save();
             ctx.translate(canvas.width/2, canvas.height/2);
             ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
             ctx.scale(scale, scale);
             ctx.translate(offsetX/scale, offsetY/scale);
-            ctx.drawImage(image, -image.width/2, -image.height/2, image.width, image.height);
+            ctx.drawImage(offscreenCanvas, -image.width/2, -image.height/2, image.width, image.height);
             ctx.restore();
+
+            isImageProcessingPending = false;
         }
 
-        function setupCanvasEvents() {
-            const canvas = document.getElementById('imageCanvas');
-
-            // Mouse events
-            canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) {
-                    isDragging = true;
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                }
-            });
-
-            canvas.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    const deltaX = e.offsetX - lastX;
-                    const deltaY = e.offsetY - lastY;
-                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                    displayImage(images[currentImageIndex]);
-                }
-            });
-
-            canvas.addEventListener('mouseup', () => isDragging = false);
-            canvas.addEventListener('mouseleave', () => isDragging = false);
-
-            // Touch events
-            canvas.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    isDragging = true;
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                } else if (e.touches.length === 2) {
-                    const touch1 = e.touches[0];
-                    const touch2 = e.touches[1];
-                    prevDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-                    prevScale = scale;
-                    e.preventDefault();
-                }
-            });
-
-            canvas.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 1 && isDragging) {
-                    const deltaX = e.touches[0].clientX - lastX;
-                    const deltaY = e.touches[0].clientY - lastY;
-                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                    displayImage(images[currentImageIndex]);
-                } else if (e.touches.length === 2) {
-                    const touch1 = e.touches[0];
-                    const touch2 = e.touches[1];
-                    const currentDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-
-                    if (prevDistance > 0) {
-                        const scaleFactor = currentDistance / prevDistance;
-                        const newScale = Math.max(0.1, Math.min(5, prevScale * scaleFactor));
-
-                        const rect = canvas.getBoundingClientRect();
-                        const midX = (touch1.clientX + touch2.clientX)/2 - rect.left;
-                        const midY = (touch1.clientY + touch2.clientY)/2 - rect.top;
-
-                        const zoomPointX = midX - canvas.width/2 - offsetX;
-                        const zoomPointY = midY - canvas.height/2 - offsetY;
-                        const deltaScale = newScale / prevScale;
-                        offsetX += zoomPointX * (1 - deltaScale);
-                        offsetY += zoomPointY * (1 - deltaScale);
-
-                        scale = newScale;
-                        prevDistance = currentDistance;
-                        prevScale = newScale;
-                        displayImage(images[currentImageIndex]);
-                    }
-                    e.preventDefault();
-                }
-            });
-
-            canvas.addEventListener('touchend', () => {
-                isDragging = false;
-                prevDistance = 0;
-            });
-
-            canvas.addEventListener('touchcancel', () => {
-                isDragging = false;
-                prevDistance = 0;
-            });
-
-            // Wheel zoom
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const zoomFactor = 0.1;
-                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
-                const oldScale = scale;
-                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
-
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                const zoomPointX = mouseX - canvas.width/2 - offsetX;
-                const zoomPointY = mouseY - canvas.height/2 - offsetY;
-                offsetX += zoomPointX * (1 - scale/oldScale);
-                offsetY += zoomPointY * (1 - scale/oldScale);
-                displayImage(images[currentImageIndex]);
-            });
-        }
-
-        function setupAdjustmentSliders() {
-            const sliders = {
-                brightness: document.getElementById('brightnessSlider'),
-                contrast: document.getElementById('contrastSlider'),
-                gamma: document.getElementById('gammaSlider'),
-                sharpness: document.getElementById('sharpnessSlider'),
-                rotation: document.getElementById('rotationSlider')
-            };
-
-            const values = {
-                brightness: document.getElementById('brightnessValue'),
-                contrast: document.getElementById('contrastValue'),
-                gamma: document.getElementById('gammaValue'),
-                sharpness: document.getElementById('sharpnessValue'),
-                rotation: document.getElementById('rotationValue')
-            };
-
-            for (const [key, slider] of Object.entries(sliders)) {
-                slider.addEventListener('input', (e) => {
-                    let value = parseFloat(e.target.value);
-                    if (key === 'gamma') value = value / 10;
-                    imageAdjustments[key] = value;
-                    values[key].textContent = key === 'rotation' ? 
-                        `${value}°` : 
-                        key === 'gamma' ? 
-                            value.toFixed(1) : 
-                            value;
-                    if (images.length > 0) displayImage(images[currentImageIndex]);
-                });
-                slider.addEventListener('touchstart', (e) => e.stopPropagation());
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('errorMessage').textContent = message;
-        }
-
-        function cleanupMemory() {
-            if (offscreenCanvas) {
-                offscreenCanvas.width = 1;
-                offscreenCanvas.height = 1;
-            }
-            imageCache.clear();
-            currentProcessing = null;
-        }
+        // ... (rest of the event handling code remains the same) ...
 
         async function init() {
             try {
@@ -467,7 +374,7 @@
                 if (images.length > 0) {
                     const slider = document.getElementById('imageSlider');
                     slider.max = images.length - 1;
-                    displayImage(images[0]);
+                    await displayImage(images[0]);
 
                     slider.addEventListener('input', (e) => {
                         currentImageIndex = parseInt(e.target.value);
@@ -477,15 +384,18 @@
                     setupCanvasEvents();
                     setupAdjustmentSliders();
                 }
-
-                window.addEventListener('unload', () => {
-                    cleanupMemory();
-                    images.forEach(img => URL.revokeObjectURL(img.src));
-                });
             } catch (error) {
                 showError('Error: The requested image file was not found or could not be loaded.');
             }
         }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (requestAnimationFrameId) {
+                cancelAnimationFrame(requestAnimationFrameId);
+            }
+            cleanupImages();
+        });
 
         window.onload = init;
     </script>

@@ -26,6 +26,9 @@
             text-align: center;
             margin: 20px;
         }
+        #imageCanvas {
+            cursor: move;
+        }
     </style>
 </head>
 <body>
@@ -38,6 +41,15 @@
     <div id="errorMessage" class="error-message"></div>
     <script>
         let images = [];
+        let currentImageIndex = 0;
+        
+        // Variables for image transformation
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let lastX = 0;
+        let lastY = 0;
 
         async function fetchBinFile(filePath) {
             try {
@@ -86,13 +98,98 @@
         function displayImage(image) {
             const canvas = document.getElementById('imageCanvas');
             const ctx = canvas.getContext('2d');
+            
+            // Clear the entire canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            
+            // Save the current context state
+            ctx.save();
+            
+            // Move to the center of the canvas
+            ctx.translate(canvas.width/2, canvas.height/2);
+            
+            // Apply scale
+            ctx.scale(scale, scale);
+            
+            // Apply the offset (divided by scale to compensate for scaling)
+            ctx.translate(offsetX/scale, offsetY/scale);
+            
+            // Draw the image centered
+            ctx.drawImage(image, 
+                -image.width/2, 
+                -image.height/2, 
+                image.width, 
+                image.height
+            );
+            
+            // Restore the context state
+            ctx.restore();
         }
 
         function showError(message) {
             const errorElement = document.getElementById('errorMessage');
             errorElement.textContent = message;
+        }
+
+        function setupCanvasEvents() {
+            const canvas = document.getElementById('imageCanvas');
+
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button === 0) { // Left mouse button
+                    isDragging = true;
+                    lastX = e.offsetX;
+                    lastY = e.offsetY;
+                }
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaX = e.offsetX - lastX;
+                    const deltaY = e.offsetY - lastY;
+                    
+                    offsetX += deltaX;
+                    offsetY += deltaY;
+                    
+                    lastX = e.offsetX;
+                    lastY = e.offsetY;
+                    
+                    displayImage(images[currentImageIndex]);
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            // Zoom with mouse wheel
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                
+                const zoomSensitivity = 0.001;
+                const oldScale = scale;
+                
+                // Update scale based on wheel delta
+                scale = Math.max(0.1, Math.min(5, scale * (1 - e.deltaY * zoomSensitivity)));
+                
+                // Adjust offset to zoom towards mouse position
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Calculate the point we're zooming towards
+                const zoomPointX = mouseX - canvas.width/2 - offsetX;
+                const zoomPointY = mouseY - canvas.height/2 - offsetY;
+                
+                // Adjust offset based on zoom point
+                offsetX += zoomPointX * (1 - scale/oldScale);
+                offsetY += zoomPointY * (1 - scale/oldScale);
+                
+                displayImage(images[currentImageIndex]);
+            });
         }
 
         async function init() {
@@ -103,8 +200,8 @@
                 
                 // Determine the file path
                 const filePath = binFileName 
-                    ? `Images/${binFileName}.bin`  // Custom path based on parameter
-                    : 'Images/output.bin';        // Default path
+                    ? `Images/${binFileName}.bin`
+                    : 'Images/output.bin';
                 
                 const buffer = await fetchBinFile(filePath);
                 images = await loadImagesFromBuffer(buffer);
@@ -115,9 +212,12 @@
                     displayImage(images[0]);
                     
                     slider.addEventListener('input', (e) => {
-                        const index = parseInt(e.target.value);
-                        displayImage(images[index]);
+                        currentImageIndex = parseInt(e.target.value);
+                        displayImage(images[currentImageIndex]);
                     });
+
+                    // Setup canvas events for pan and zoom
+                    setupCanvasEvents();
                 }
             } catch (error) {
                 showError('Error: The requested image file was not found or could not be loaded.');

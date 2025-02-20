@@ -38,7 +38,6 @@
     <div id="errorMessage" class="error-message"></div>
     <script>
         let images = [];
-        const DEFAULT_BIN_PATH = 'Images/output.bin';
 
         async function fetchBinFile(filePath) {
             try {
@@ -49,7 +48,7 @@
                 const buffer = await response.arrayBuffer();
                 return buffer;
             } catch (error) {
-                throw new Error('Unable to load the file');
+                throw new Error('Failed to load the file');
             }
         }
 
@@ -96,28 +95,21 @@
             errorElement.textContent = message;
         }
 
-        function clearError() {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = '';
-        }
-
         async function init() {
-            // Get the URL search parameters
-            const urlParams = new URLSearchParams(window.location.search);
-            let binPath = DEFAULT_BIN_PATH;
-
-            // If there's a parameter, use it to construct the path
-            if (urlParams.toString()) {
-                const searchParam = urlParams.toString().substring(1); // Remove the '?' character
-                binPath = `Images/${searchParam}.bin`;
-            }
-
             try {
-                const buffer = await fetchBinFile(binPath);
+                // Get the URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const binFileName = urlParams.get('file');
+                
+                // Determine the file path
+                const filePath = binFileName 
+                    ? `Images/${binFileName}.bin`  // Custom path based on parameter
+                    : 'Images/output.bin';        // Default path
+                
+                const buffer = await fetchBinFile(filePath);
                 images = await loadImagesFromBuffer(buffer);
                 
                 if (images.length > 0) {
-                    clearError();
                     const slider = document.getElementById('imageSlider');
                     slider.max = images.length - 1;
                     displayImage(images[0]);
@@ -128,7 +120,7 @@
                     });
                 }
             } catch (error) {
-                showError(`Error: ${error.message}`);
+                showError('Error: The requested image file was not found or could not be loaded.');
             }
         }
 

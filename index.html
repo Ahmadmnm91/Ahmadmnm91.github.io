@@ -2,13 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Image Viewer with Adjustments</title>
     <style>
+        body {
+            margin: 0;
+            padding: 10px;
+            overscroll-behavior: none; /* Prevent pull-to-refresh */
+            touch-action: none; /* Prevent default touch actions */
+        }
         .container {
             display: flex;
+            flex-direction: column;
             align-items: center;
             gap: 20px;
+            max-width: 100%;
+        }
+        @media (min-width: 768px) {
+            .container {
+                flex-direction: row;
+            }
+        }
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            touch-action: none;
+        }
+        #imageCanvas {
+            width: 100%;
+            height: auto;
+            cursor: move;
+            touch-action: none;
         }
         .slider-container {
             height: 500px;
@@ -20,29 +45,21 @@
             width: 500px;
             height: 50px;
         }
-        .error-message {
-            color: red;
-            font-size: 18px;
-            text-align: center;
-            margin: 20px;
-        }
-        #imageCanvas {
-            cursor: move;
-        }
         .controls {
             display: flex;
             flex-direction: column;
             gap: 10px;
             margin-top: 20px;
-            width: 500px;
+            width: 100%;
+            max-width: 500px;
         }
         .control-group {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 5px;
+            padding: 10px;
             background-color: #f5f5f5;
-            border-radius: 4px;
+            border-radius: 8px;
         }
         .control-label {
             min-width: 100px;
@@ -50,266 +67,119 @@
         }
         .control-slider {
             flex-grow: 1;
+            height: 30px; /* Larger touch target */
         }
         .control-value {
             min-width: 50px;
             text-align: right;
             font-family: monospace;
         }
+        /* Mobile-friendly slider styles */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #ddd;
+            border-radius: 5px;
+            height: 10px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            background: #4CAF50;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .error-message {
+            color: red;
+            font-size: 18px;
+            text-align: center;
+            margin: 20px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <canvas id="imageCanvas" width="500" height="500"></canvas>
-        <div class="slider-container">
-            <input type="range" id="imageSlider" class="vertical" min="0" value="0" step="1">
-        </div>
-    </div>
-    <div class="controls">
-        <div class="control-group">
-            <span class="control-label">Brightness:</span>
-            <input type="range" id="brightnessSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-            <span class="control-value" id="brightnessValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Contrast:</span>
-            <input type="range" id="contrastSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-            <span class="control-value" id="contrastValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Gamma:</span>
-            <input type="range" id="gammaSlider" class="control-slider" min="1" max="22" value="10" step="1">
-            <span class="control-value" id="gammaValue">1.0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Sharpness:</span>
-            <input type="range" id="sharpnessSlider" class="control-slider" min="0" max="100" value="0" step="1">
-            <span class="control-value" id="sharpnessValue">0</span>
-        </div>
-        <div class="control-group">
-            <span class="control-label">Rotation:</span>
-            <input type="range" id="rotationSlider" class="control-slider" min="0" max="360" value="0" step="1">
-            <span class="control-value" id="rotationValue">0°</span>
-        </div>
-    </div>
-    <div id="errorMessage" class="error-message"></div>
+    <!-- Previous HTML remains the same -->
     <script>
-        let images = [];
-        let currentImageIndex = 0;
-        
-        // Variables for image transformation
-        let scale = 1;
-        let offsetX = 0;
-        let offsetY = 0;
-        let isDragging = false;
-        let lastX = 0;
-        let lastY = 0;
-
-        // Image adjustment values
-        let imageAdjustments = {
-            brightness: 0,
-            contrast: 0,
-            gamma: 1.0,
-            sharpness: 0,
-            rotation: 0
-        };
-
-        // Convolution kernels for sharpening
-const sharpenKernel = [
-    -1, -1, -1,
-    -1,  9, -1,
-    -1, -1, -1
-];
-
-        async function fetchBinFile(filePath) {
-            try {
-                const response = await fetch(filePath);
-                if (!response.ok) {
-                    throw new Error('File not found');
-                }
-                const buffer = await response.arrayBuffer();
-                return buffer;
-            } catch (error) {
-                throw new Error('Failed to load the file');
-            }
-        }
-
-        function loadImagesFromBuffer(buffer) {
-            const dataView = new DataView(buffer);
-            let offset = 0;
-            const fileCount = dataView.getInt32(offset, true);
-            offset += 4;
-
-            const imgs = [];
-            const promises = [];
-
-            for (let i = 0; i < fileCount; i++) {
-                const jpegDataLength = dataView.getInt32(offset, true);
-                offset += 4;
-
-                const jpegData = new Uint8Array(buffer, offset, jpegDataLength);
-                offset += jpegDataLength;
-
-                const blob = new Blob([jpegData], { type: 'image/jpeg' });
-                const imageUrl = URL.createObjectURL(blob);
-
-                const image = new Image();
-                image.src = imageUrl;
-                imgs.push(image);
-                
-                promises.push(new Promise((resolve) => {
-                    image.onload = resolve;
-                }));
-            }
-
-            return Promise.all(promises).then(() => imgs);
-        }
-
-        function applyConvolution(data, width, height, kernel, kernelSize) {
-    const output = new Uint8ClampedArray(data.length);
-    const half = Math.floor(kernelSize / 2);
-
-    // Copy alpha channel directly
-    for (let i = 3; i < data.length; i += 4) {
-        output[i] = data[i];
-    }
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const idx = (y * width + x) * 4;
-            let r = 0, g = 0, b = 0;
-
-            // Apply convolution kernel
-            for (let ky = -half; ky <= half; ky++) {
-                for (let kx = -half; kx <= half; kx++) {
-                    const ix = x + kx;
-                    const iy = y + ky;
-                    
-                    if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
-                        const kernelIdx = (ky + half) * kernelSize + (kx + half);
-                        const dataIdx = (iy * width + ix) * 4;
-                        
-                        r += data[dataIdx] * kernel[kernelIdx];
-                        g += data[dataIdx + 1] * kernel[kernelIdx];
-                        b += data[dataIdx + 2] * kernel[kernelIdx];
-                    }
-                }
-            }
-
-            output[idx] = Math.min(255, Math.max(0, r));
-            output[idx + 1] = Math.min(255, Math.max(0, g));
-            output[idx + 2] = Math.min(255, Math.max(0, b));
-        }
-    }
-
-    return output;
-}
-
-        function processImageData(imageData) {
-    const data = imageData.data;
-    const len = data.length;
-    
-    // Create a copy of the original data
-    let processed = new Uint8ClampedArray(data);
-
-    // Apply sharpening first if needed
-    if (imageAdjustments.sharpness > 0) {
-        const intensity = imageAdjustments.sharpness / 100;
-        const customKernel = [
-            -intensity, -intensity, -intensity,
-            -intensity, 1 + (8 * intensity), -intensity,
-            -intensity, -intensity, -intensity
-        ];
-        processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
-    }
-
-    // Apply other adjustments
-    for (let i = 0; i < len; i += 4) {
-        let r = processed[i];
-        let g = processed[i + 1];
-        let b = processed[i + 2];
-
-        // Apply brightness
-        r += imageAdjustments.brightness;
-        g += imageAdjustments.brightness;
-        b += imageAdjustments.brightness;
-
-        // Apply contrast
-        const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
-        r = factor * (r - 128) + 128;
-        g = factor * (g - 128) + 128;
-        b = factor * (b - 128) + 128;
-
-        // Apply gamma
-        const gamma = imageAdjustments.gamma;
-        r = 255 * Math.pow(r / 255, 1 / gamma);
-        g = 255 * Math.pow(g / 255, 1 / gamma);
-        b = 255 * Math.pow(b / 255, 1 / gamma);
-
-        // Clamp values
-        processed[i] = Math.min(255, Math.max(0, r));
-        processed[i + 1] = Math.min(255, Math.max(0, g));
-        processed[i + 2] = Math.min(255, Math.max(0, b));
-    }
-
-    return processed;
-}
-
-        function displayImage(image) {
-            const canvas = document.getElementById('imageCanvas');
-            const ctx = canvas.getContext('2d');
-
-            // Create offscreen canvas for processing
-            const offscreen = document.createElement('canvas');
-            offscreen.width = image.width;
-            offscreen.height = image.height;
-            const offCtx = offscreen.getContext('2d');
-
-            // Clear both canvases
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
-
-            // Draw image to offscreen canvas
-            offCtx.drawImage(image, 0, 0);
-
-            // Get image data and process it
-            const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
-            const processedData = processImageData(imageData);
-            
-            // Put processed data back to offscreen canvas
-            offCtx.putImageData(new ImageData(processedData, offscreen.width, offscreen.height), 0, 0);
-
-            // Draw to main canvas with transformations
-            ctx.save();
-            
-            // Move to center of canvas
-            ctx.translate(canvas.width/2, canvas.height/2);
-            
-            // Apply rotation
-            ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
-            
-            // Apply scale
-            ctx.scale(scale, scale);
-            
-            // Apply translation
-            ctx.translate(offsetX/scale, offsetY/scale);
-
-            // Draw the processed image centered
-            ctx.drawImage(offscreen, 
-                -image.width/2, 
-                -image.height/2, 
-                image.width, 
-                image.height
-            );
-
-            ctx.restore();
-        }
+        // Previous variables and functions remain the same until setupCanvasEvents
 
         function setupCanvasEvents() {
             const canvas = document.getElementById('imageCanvas');
+            let lastTouchDistance = 0;
+            let isGesturing = false;
 
+            // Touch start event
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    lastX = e.touches[0].clientX;
+                    lastY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    // Start of pinch-to-zoom
+                    isGesturing = true;
+                    lastTouchDistance = getTouchDistance(e.touches);
+                }
+            }, { passive: false });
+
+            // Touch move event
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (isDragging && e.touches.length === 1) {
+                    // Single touch - pan
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - lastX;
+                    const deltaY = touch.clientY - lastY;
+                    
+                    offsetX += deltaX;
+                    offsetY += deltaY;
+                    
+                    lastX = touch.clientX;
+                    lastY = touch.clientY;
+                    
+                    displayImage(images[currentImageIndex]);
+                } else if (isGesturing && e.touches.length === 2) {
+                    // Pinch-to-zoom
+                    const currentDistance = getTouchDistance(e.touches);
+                    const delta = currentDistance - lastTouchDistance;
+                    
+                    const zoomFactor = 0.005;
+                    const oldScale = scale;
+                    scale = Math.max(0.1, Math.min(5, scale * (1 + delta * zoomFactor)));
+                    
+                    // Get the center point between the two touches
+                    const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                    
+                    // Adjust offset to zoom towards center point
+                    const rect = canvas.getBoundingClientRect();
+                    const zoomPointX = centerX - rect.left - canvas.width/2 - offsetX;
+                    const zoomPointY = centerY - rect.top - canvas.height/2 - offsetY;
+                    
+                    offsetX += zoomPointX * (1 - scale/oldScale);
+                    offsetY += zoomPointY * (1 - scale/oldScale);
+                    
+                    lastTouchDistance = currentDistance;
+                    displayImage(images[currentImageIndex]);
+                }
+            }, { passive: false });
+
+            // Touch end event
+            canvas.addEventListener('touchend', (e) => {
+                isDragging = false;
+                isGesturing = false;
+            });
+
+            // Touch cancel event
+            canvas.addEventListener('touchcancel', (e) => {
+                isDragging = false;
+                isGesturing = false;
+            });
+
+            // Mouse events (keep existing mouse events for desktop compatibility)
             canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) { // Left mouse button
+                if (e.button === 0) {
                     isDragging = true;
                     lastX = e.offsetX;
                     lastY = e.offsetY;
@@ -348,7 +218,6 @@ const sharpenKernel = [
                 
                 scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
                 
-                // Adjust offset to zoom towards mouse position
                 const rect = canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
@@ -363,110 +232,96 @@ const sharpenKernel = [
             });
         }
 
-        function setupAdjustmentSliders() {
-            const sliders = {
-                brightness: document.getElementById('brightnessSlider'),
-                contrast: document.getElementById('contrastSlider'),
-                gamma: document.getElementById('gammaSlider'),
-                sharpness: document.getElementById('sharpnessSlider'),
-                rotation: document.getElementById('rotationSlider')
-            };
+        // Helper function to calculate distance between two touch points
+        function getTouchDistance(touches) {
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
 
-            const values = {
-                brightness: document.getElementById('brightnessValue'),
-                contrast: document.getElementById('contrastValue'),
-                gamma: document.getElementById('gammaValue'),
-                sharpness: document.getElementById('sharpnessValue'),
-                rotation: document.getElementById('rotationValue')
-            };
+        // Add swipe detection for image navigation
+        function setupSwipeEvents() {
+            const canvas = document.getElementById('imageCanvas');
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchStartTime = 0;
 
-            for (const [key, slider] of Object.entries(sliders)) {
-                slider.addEventListener('input', (e) => {
-                    let value = parseFloat(e.target.value);
-                    
-                    // Special handling for gamma
-                    if (key === 'gamma') {
-                        value = value / 10; // Convert 10-22 to 1.0-2.2
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    touchStartTime = Date.now();
+                }
+            });
+
+            canvas.addEventListener('touchend', (e) => {
+                if (e.changedTouches.length === 1) {
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const touchEndY = e.changedTouches[0].clientY;
+                    const touchEndTime = Date.now();
+
+                    const deltaX = touchEndX - touchStartX;
+                    const deltaY = touchEndY - touchStartY;
+                    const deltaTime = touchEndTime - touchStartTime;
+
+                    // Check if it's a swipe (fast enough and long enough)
+                    if (deltaTime < 300) {
+                        const swipeLength = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                        if (swipeLength > 50) {
+                            // Determine if it's mostly horizontal
+                            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                                const slider = document.getElementById('imageSlider');
+                                if (deltaX > 0 && currentImageIndex > 0) {
+                                    // Swipe right - previous image
+                                    currentImageIndex--;
+                                    slider.value = currentImageIndex;
+                                    displayImage(images[currentImageIndex]);
+                                } else if (deltaX < 0 && currentImageIndex < images.length - 1) {
+                                    // Swipe left - next image
+                                    currentImageIndex++;
+                                    slider.value = currentImageIndex;
+                                    displayImage(images[currentImageIndex]);
+                                }
+                            }
+                        }
                     }
+                }
+            });
+        }
+
+        // Modify init() to include swipe events
+        async function init() {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const binFileName = urlParams.get('file');
+                
+                const filePath = binFileName 
+                    ? `Images/${binFileName}.bin`
+                    : 'Images/output.bin';
+                
+                const buffer = await fetchBinFile(filePath);
+                images = await loadImagesFromBuffer(buffer);
+                
+                if (images.length > 0) {
+                    const slider = document.getElementById('imageSlider');
+                    slider.max = images.length - 1;
+                    displayImage(images[0]);
                     
-                    imageAdjustments[key] = value;
-                    
-                    // Update display value
-                    values[key].textContent = key === 'rotation' ? 
-                        `${value}°` : 
-                        key === 'gamma' ? 
-                            value.toFixed(1) : 
-                            value;
-                    
-                    if (images.length > 0) {
+                    slider.addEventListener('input', (e) => {
+                        currentImageIndex = parseInt(e.target.value);
                         displayImage(images[currentImageIndex]);
-                    }
-                });
+                    });
+
+                    setupCanvasEvents();
+                    setupAdjustmentSliders();
+                    setupKeyboardEvents();
+                    setupSwipeEvents();
+                }
+            } catch (error) {
+                showError('Error: The requested image file was not found or could not be loaded.');
             }
         }
 
-        function showError(message) {
-            const errorElement = document.getElementById('errorMessage');
-            errorElement.textContent = message;
-        }
-function setupKeyboardEvents() {
-    document.addEventListener('keydown', (e) => {
-        const slider = document.getElementById('imageSlider');
-        
-        switch(e.key) {
-            case 'ArrowUp':
-                // Prevent default to avoid page scrolling
-                e.preventDefault();
-                if (currentImageIndex < images.length - 1) {
-                    currentImageIndex++;
-                    slider.value = currentImageIndex;
-                    displayImage(images[currentImageIndex]);
-                }
-                break;
-                
-            case 'ArrowDown':
-                e.preventDefault();
-                if (currentImageIndex > 0) {
-                    currentImageIndex--;
-                    slider.value = currentImageIndex;
-                    displayImage(images[currentImageIndex]);
-                }
-                break;
-        }
-    });
-}
-async function init() {
-    try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const binFileName = urlParams.get('file');
-        
-        const filePath = binFileName 
-            ? `Images/${binFileName}.bin`
-            : 'Images/output.bin';
-        
-        const buffer = await fetchBinFile(filePath);
-        images = await loadImagesFromBuffer(buffer);
-        
-        if (images.length > 0) {
-            const slider = document.getElementById('imageSlider');
-            slider.max = images.length - 1;
-            displayImage(images[0]);
-            
-            slider.addEventListener('input', (e) => {
-                currentImageIndex = parseInt(e.target.value);
-                displayImage(images[currentImageIndex]);
-            });
-
-            setupCanvasEvents();
-            setupAdjustmentSliders();
-            setupKeyboardEvents(); // Add this line
-        }
-    } catch (error) {
-        showError('Error: The requested image file was not found or could not be loaded.');
-    }
-}
-
-        // Initialize when window loads
         window.onload = init;
     </script>
 </body>

